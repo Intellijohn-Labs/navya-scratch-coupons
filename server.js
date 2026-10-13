@@ -35,7 +35,8 @@ function publicUrl(req, ignoreSetting = false) {
 }
 
 function sign(v) {
-  return crypto.createHmac('sha256', getSetting('session_secret')).update(v).digest('hex');
+  // SESSION_SECRET env keeps logins valid across serverless instances (Vercel).
+  return crypto.createHmac('sha256', process.env.SESSION_SECRET || getSetting('session_secret')).update(v).digest('hex');
 }
 function cookies(req) {
   return Object.fromEntries((req.headers.cookie || '').split(';').filter(Boolean).map(c => {
@@ -374,8 +375,13 @@ app.get('/admin', (req, res) => res.sendFile(path.join(pub, 'admin', 'index.html
 app.get('/admin/print/:id', (req, res) => res.sendFile(path.join(pub, 'admin', 'print.html')));
 app.get('/c/:code', (req, res) => res.sendFile(path.join(pub, 'c', 'index.html')));
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`\n  Navya Scratch Coupons running`);
-  console.log(`  Admin:  http://localhost:${PORT}/admin`);
-  console.log(`  Phones on the same Wi-Fi: http://${lanIp()}:${PORT}\n`);
-});
+module.exports = app;
+
+// Run a normal server locally / on a VPS; on Vercel the app is imported by api/index.js instead.
+if (require.main === module) {
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`\n  Navya Scratch Coupons running`);
+    console.log(`  Admin:  http://localhost:${PORT}/admin`);
+    console.log(`  Phones on the same Wi-Fi: http://${lanIp()}:${PORT}\n`);
+  });
+}

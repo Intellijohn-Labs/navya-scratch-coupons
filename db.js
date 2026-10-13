@@ -4,7 +4,8 @@ const path = require('path');
 const crypto = require('crypto');
 const { DatabaseSync } = require('node:sqlite');
 
-const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
+// Vercel's filesystem is read-only except /tmp (and /tmp is per-instance, not permanent).
+const DATA_DIR = process.env.DATA_DIR || (process.env.VERCEL ? '/tmp/navya-data' : path.join(__dirname, 'data'));
 fs.mkdirSync(DATA_DIR, { recursive: true });
 const db = new DatabaseSync(path.join(DATA_DIR, 'navya.db'));
 
@@ -97,7 +98,7 @@ function tx(fn) {
   catch (e) { db.exec('ROLLBACK'); throw e; }
 }
 
-function createBatch({ name, headline, subline, theme, expires_on, count, sample = 0 }) {
+function createBatch({ name, headline, subline, theme, expires_on, count, sample = 0, codeFn = () => randomCode(8) }) {
   return tx(() => {
     const info = db.prepare(`INSERT INTO batches(name, headline, subline, theme, expires_on, count, sample)
       VALUES(?,?,?,?,?,?,?)`).run(name, headline, subline, theme, expires_on || null, count, sample);
@@ -106,7 +107,7 @@ function createBatch({ name, headline, subline, theme, expires_on, count, sample
     const exists = db.prepare('SELECT 1 FROM coupons WHERE code = ?');
     for (let i = 1; i <= count; i++) {
       let code;
-      do { code = randomCode(8); } while (exists.get(code));
+      do { code = codeFn(); } while (exists.get(code));
       ins.run(code, batchId, i);
     }
     return batchId;
@@ -144,7 +145,12 @@ function seed() {
   g.run('Better luck next time', 'Thank you for choosing Navya! Keep scanning — more sweet surprises are coming.', '', 'lose', 25, null, 0, 0);
 
   // Demo campaign: fresh coupons to print + a few already-claimed ones so the dashboard has life.
+  // On Vercel every cold instance seeds its own copy, so make the demo codes identical everywhere.
+  let n = 0;
+  const fixedCode = () => crypto.createHash('sha256').update('navya-demo-' + n++).digest()
+    .subarray(0, 8).reduce((s, b) => s + CHARS[b % CHARS.length], '');
   const batchId = createBatch({
+    codeFn: process.env.VERCEL ? fixedCode : undefined,
     name: 'Festive Sweet Scratch', headline: 'Scratch & Win', subline: 'A sweet surprise is waiting for you!',
     theme: 'orange', expires_on: daysFromNow(60), count: 24, sample: 1,
   });
