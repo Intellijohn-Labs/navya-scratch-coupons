@@ -1,4 +1,4 @@
-# Navya Bakers: Scratch & Win (demo)
+# Navya Bakers: Scratch & Win
 
 QR scratch-coupon system for Navya Bakers. Staff print coupons from the admin panel and hand them to customers. A customer scans the QR, enters their details, scratches a card on their phone and wins a random gift. At the counter, staff scan the reward QR to hand over the gift.
 
@@ -6,12 +6,16 @@ QR scratch-coupon system for Navya Bakers. Staff print coupons from the admin pa
 
 ```
 npm install
+neon link --project-id <your-neon-project-id> --branch production   # writes DATABASE_URL to .env.local
+npm run db:setup   # creates the tables (and demo data on a brand-new database)
 npm start
 ```
 
 - Admin: http://localhost:3000/admin
+- Database: **Neon Postgres**. The app reads `DATABASE_URL` (from `.env.local` locally, from the environment on Vercel or a VPS). Tables are defined in [`db/schema.sql`](db/schema.sql) and are also created automatically on first start.
 - Admin password: set the `ADMIN_PASSWORD` env var before the first run. Otherwise a random password is generated and printed in the server console on first start. You can change it later in **Settings**.
-- Requires Node 22.13 or newer (uses the built-in `node:sqlite`; data is stored in `data/navya.db`)
+- Requires Node 22.9 or newer.
+- Moving old local data: `npm run db:import-sqlite` copies `data/navya.db` (the previous SQLite version) into Neon, keeping every coupon code.
 
 ## Testing with a phone
 
@@ -31,16 +35,20 @@ For real use, deploy the app and put its domain in **Settings → Website addres
 | Customers | Search, CSV export (opens in Excel), and one-tap WhatsApp message with the reward code |
 | Settings | QR base URL, one win per mobile number per campaign, terms, shop details, admin password, remove demo data |
 
-**Fairness and safety:** the gift is chosen on the server, weighted by chance and limited by stock, at the moment of claiming, so it can't be changed from the phone. Each coupon can only be claimed once (enforced in a database transaction). Claim attempts are throttled per IP.
+**Fairness and safety:** the gift is chosen on the server, weighted by chance and limited by stock, at the moment of claiming, so it can't be changed from the phone. Each coupon can only be claimed once, and the last unit of a prize can't be won twice: claims lock the coupon and gift rows in a Postgres transaction. Redeeming is a single conditional update, so two counters can't redeem the same reward. Claim attempts are throttled per IP.
 
 ## Demo data
 
-On first run the app seeds 7 gifts and a "Festive Sweet Scratch" batch of 24 coupons. Nine of them come with sample customers so the dashboard isn't empty. Remove them in **Settings → Demo data**. To start completely fresh, stop the server and delete the `data/` folder.
+On a brand-new database the app seeds 7 gifts and a "Festive Sweet Scratch" batch of 24 coupons. Nine of them come with sample customers so the dashboard isn't empty. Remove them in **Settings → Demo data**.
 
-## Deploying (IntelliJohn VPS)
+## Deploying
+
+**Vercel** (live at https://navya-scratch-coupons.vercel.app): every push to `main` deploys. The project needs `DATABASE_URL`, `ADMIN_PASSWORD` and `SESSION_SECRET` set as environment variables.
+
+**VPS** (e.g. IntelliJohn's):
 
 1. Copy the folder and run `npm install --omit=dev`.
-2. Start it with `PORT=3000 ADMIN_PASSWORD=... node --no-warnings server.js` under pm2 or systemd.
+2. Start it with `PORT=3000 DATABASE_URL=... ADMIN_PASSWORD=... node --no-warnings server.js` under pm2 or systemd.
 3. Put Nginx with HTTPS in front of it, for example at `scratch.navyabakers.com`. HTTPS is required for the counter camera scanner on phones.
 4. Set that URL in Settings, then print.
 

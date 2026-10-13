@@ -1,6 +1,6 @@
 {
   "name": "navya-scratch-coupons",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Navya Bakers — Scan & Scratch QR coupon system (admin + customer scratch experience)",
   "main": "server.js",
   "private": true,
@@ -8,11 +8,18 @@
     "node": "22.x"
   },
   "scripts": {
-    "start": "node --no-warnings server.js",
-    "dev": "node --no-warnings --watch server.js"
+    "start": "node --env-file-if-exists=.env.local --no-warnings server.js",
+    "dev": "node --env-file-if-exists=.env.local --no-warnings --watch server.js",
+    "db:setup": "node --env-file-if-exists=.env.local --no-warnings scripts/db-setup.js",
+    "db:import-sqlite": "node --env-file-if-exists=.env.local --no-warnings scripts/import-sqlite.js"
   },
   "dependencies": {
-    "express": "4.21.2",
+    "express": "^4.22.3",
+    "pg": "^8.23.1",
     "qrcode": "1.5.4"
+  },
+  "devDependencies": {
+    "@neon/config": "^1.9.1",
+    "@neon/env": "^1.6.1"
   }
 }
