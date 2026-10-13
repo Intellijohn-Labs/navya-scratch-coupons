@@ -14,7 +14,11 @@
   };
   const initials = n => (n || '?').split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase();
   const fmtPhone = p => p ? p.slice(0, 5) + ' ' + p.slice(5) : '';
-  const PRESETS = ['/img/cake.webp', '/img/cookies.webp', '/img/desserts.webp', '/img/bread.webp', '/img/savouries.webp', '/img/snacks.webp'];
+  // Neutral icon presets for every bakery; Navya also keeps the product photos taken from its own website.
+  const EMOJI_PRESETS = ['🎂', '🍰', '🧁', '🍪', '🍩', '🥐', '🍞', '🍮', '🥧', '🍫', '☕', '🎟️'].map(e => 'emoji:' + e);
+  const PHOTO_PRESETS = ['/img/cake.webp', '/img/cookies.webp', '/img/desserts.webp', '/img/bread.webp', '/img/savouries.webp', '/img/snacks.webp'];
+  let ME = { tenant: { name: '', color: '#F47216', color2: '#963B1F' } };
+  const presets = () => ME.tenant.slug === 'navya' ? [...PHOTO_PRESETS, ...EMOJI_PRESETS] : EMOJI_PRESETS;
   const PALETTE = ['#F47216', '#963B1F', '#E9A92A', '#E9567B', '#2C9C8F', '#6B5BD6', '#3D8BD9', '#8BBE3A', '#C1A08E'];
   const WA_ICON = '<svg viewBox="0 0 24 24" width="15" height="15"><path fill="currentColor" d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2Zm5.3 14.1c-.2.6-1.3 1.2-1.8 1.2-.5.1-1 .2-3.4-.7-2.8-1.1-4.6-4-4.8-4.2-.1-.2-1.1-1.5-1.1-2.9s.7-2.1 1-2.4c.3-.3.6-.3.8-.3h.6c.2 0 .4 0 .6.5l.8 2c.1.2.1.4 0 .5l-.3.5-.4.4c-.1.1-.3.3-.1.6.2.3.8 1.3 1.7 2.1 1.2 1 2.1 1.4 2.4 1.5.3.1.5.1.6-.1l.9-1c.2-.3.4-.2.6-.1l1.9.9c.3.1.5.2.5.3.1.2.1.7-.1 1.2Z"/></svg>';
 
@@ -48,13 +52,34 @@
 
   // ---------------------------------------------------------------- auth
   function showLogin() { $('#login').classList.remove('hidden'); $('#shell').classList.add('hidden'); }
-  function showShell() { $('#login').classList.add('hidden'); $('#shell').classList.remove('hidden'); route(); }
+  async function showShell() {
+    ME = await (await fetch('/api/admin/me')).json();
+    if (!ME.admin) return showLogin();
+    applyBrand(ME.tenant);
+    const ban = $('#impBanner');
+    ban.hidden = !ME.impersonated;
+    ban.innerHTML = ME.impersonated ? `<span>👀 You are viewing <b>${esc(ME.tenant.name)}</b> as the Super Admin.</span><a href="/super">← Back to Super Admin</a>` : '';
+    $('#login').classList.add('hidden'); $('#shell').classList.remove('hidden'); route();
+  }
+  function applyBrand(t) {
+    document.title = `${t.name} · Scratch & Win`;
+    $('#sideTitle').textContent = t.name;
+    $('#sideName').textContent = [t.name, t.address].filter(Boolean).join(' · ');
+    if (t.logo) { $('#sideLogo').src = t.logo; $('#sideLogo').hidden = false; $('#sideInitial').textContent = ''; }
+    else { $('#sideLogo').hidden = true; $('#sideInitial').textContent = initials(t.name); $('#sideInitial').style.background = t.color; }
+  }
   $('#loginForm').addEventListener('submit', async e => {
     e.preventDefault();
-    const r = await fetch('/api/admin/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: e.target.password.value }) });
-    if (r.ok) { e.target.reset(); showShell(); } else $('#loginErr').textContent = 'Wrong password. Please try again.';
+    $('#loginErr').textContent = '';
+    const r = await fetch('/api/admin/login', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: e.target.username.value.trim(), password: e.target.password.value }) });
+    if (r.ok) { e.target.reset(); showShell(); }
+    else $('#loginErr').textContent = (await r.json().catch(() => ({}))).error || 'Could not sign in';
   });
-  $('#logout').onclick = async () => { await fetch('/api/admin/logout', { method: 'POST' }); showLogin(); };
+  $('#logout').onclick = async () => {
+    await fetch('/api/admin/logout', { method: 'POST' });
+    if (ME.impersonated) location.href = '/super'; else showLogin();
+  };
 
   // ---------------------------------------------------------------- router
   let scanner = null;
@@ -119,7 +144,7 @@
               const left = g.stock_total == null ? null : g.stock_total - g.stock_used;
               const p = g.stock_total ? Math.round(left / g.stock_total * 100) : 100;
               return `<div class="stock-row">
-                ${g.image ? `<img class="thumb" src="${esc(g.image)}" alt="">` : '<div class="thumb">🎁</div>'}
+                <div class="thumb">${giftPic(g.image)}</div>
                 <div><b>${esc(g.name)}</b> ${g.bumper ? '<span class="pill bumper">Bumper</span>' : ''}${g.active ? '' : ' <span class="pill off">Paused</span>'}
                   <div class="bar-track"><div class="bar-fill ${p < 20 ? 'low' : ''}" style="width:${p}%"></div></div></div>
                 <small style="color:var(--muted)">${left == null ? '∞ left' : `${left} / ${g.stock_total}`}</small>
@@ -157,7 +182,7 @@
           const out = left !== null && left <= 0;
           return `<div class="gift ${g.active && !out ? '' : 'inactive'}">
             <div class="gift-img">
-              ${g.image ? `<img src="${esc(g.image)}" alt="">` : (g.kind === 'lose' ? '🧁' : '🎁')}
+              ${giftPic(g.image, g.kind === 'lose' ? '🧁' : '🎁')}
               <div class="tags">
                 ${g.bumper ? '<span class="pill bumper">★ Bumper</span>' : ''}
                 ${g.kind === 'lose' ? '<span class="pill lose">No-win card</span>' : ''}
@@ -199,7 +224,7 @@
   }
 
   function giftForm(g, all) {
-    const f = g ? { ...g } : { name: '', description: '', image: PRESETS[0], kind: 'prize', weight: 10, stock_total: 50, valid_days: 15, bumper: 0, active: 1 };
+    const f = g ? { ...g } : { name: '', description: '', image: presets()[0], kind: 'prize', weight: 10, stock_total: 50, valid_days: 15, bumper: 0, active: 1 };
     const othersWeight = all.filter(x => x.id !== f.id && x.active && x.weight > 0 && (x.stock_total == null || x.stock_used < x.stock_total)).reduce((s, x) => s + x.weight, 0);
     const m = modal(`
       <h2>${g ? 'Edit gift' : 'Add a gift'}</h2>
@@ -213,7 +238,7 @@
       <label class="label">Picture</label>
       <div class="img-pick" id="imgPick">
         <button type="button" class="opt" data-img="">🎁</button>
-        ${PRESETS.map(p => `<button type="button" class="opt" data-img="${p}"><img src="${p}" alt=""></button>`).join('')}
+        ${presets().map(p => `<button type="button" class="opt" data-img="${esc(p)}">${giftPic(p)}</button>`).join('')}
         <label class="upload">Upload<br>photo<input type="file" accept="image/*" hidden id="gFile"></label>
         <span id="customImg"></span>
       </div>
@@ -241,7 +266,7 @@
     const setImg = src => {
       f.image = src;
       el.querySelectorAll('#imgPick .opt').forEach(b => b.classList.toggle('on', b.dataset.img === src));
-      const custom = src && !PRESETS.includes(src);
+      const custom = src && !presets().includes(src);
       $('#customImg', el).innerHTML = custom ? `<button type="button" class="opt on"><img src="${esc(src)}" alt=""></button>` : '';
     };
     const odds = () => {
@@ -284,21 +309,27 @@
   }
 
   // ---------------------------------------------------------------- coupons / batches
-  const THEMES = { orange: ['Tempting Orange', 'linear-gradient(135deg,#FF9F45,#F47216,#C24508)'], chocolate: ['Rich Chocolate', 'linear-gradient(135deg,#6B2E14,#2A1007)'], festive: ['Festive Red', 'linear-gradient(135deg,#D21F3C,#6E0619)'] };
-  let baseUrlCache = '';
+  const THEMES = { orange: ['Brand colours', 'linear-gradient(135deg,#FF9F45,#F47216,#C24508)'], chocolate: ['Rich Chocolate', 'linear-gradient(135deg,#6B2E14,#2A1007)'], festive: ['Festive Red', 'linear-gradient(135deg,#D21F3C,#6E0619)'] };
+  let baseUrlCache = '', treatCache = '';
 
   async function coupons() {
-    const [list, s] = await Promise.all([api('/batches'), api('/settings')]);
+    const [list, s, gifts] = await Promise.all([api('/batches'), api('/settings'), api('/gifts')]);
     baseUrlCache = s.public_url || s.detected_url;
+    const pic = gifts.find(g => g.kind === 'prize' && g.image);
+    treatCache = pic ? pic.image : 'emoji:🎁';
+    const c = ME.tenant.color || '#F47216';
+    THEMES.orange[1] = `linear-gradient(135deg,${shade(c, 0.25)},${c},${shade(c, -0.3)})`;
+    const used = list.reduce((n, b) => n + b.count, 0);
     view.innerHTML = `
       <div class="page-head">
         <div><h1>Coupons &amp; Print</h1><p>Create a batch of unique QR coupons, print them, and hand them to customers.</p></div>
         <button class="btn primary" id="newBatch">+ New coupon batch</button>
       </div>
+      ${s.max_coupons != null ? `<div class="plan-note">Your plan: <b>${used} of ${s.max_coupons}</b> coupons used${s.plan_expires_on ? ` · renews ${fmtDate(s.plan_expires_on)}` : ''}.</div>` : ''}
       <div class="batches">
         ${list.length ? list.map(b => `
           <div class="batch">
-            <div class="batch-prev">${renderCoupon({ code: 'NAVYA123', serial: 1, theme: b.theme, headline: b.headline, subline: b.subline, expires_on: b.expires_on, baseUrl: baseUrlCache })}</div>
+            <div class="batch-prev">${renderCoupon({ code: 'DEMO1234', serial: 1, theme: b.theme, headline: b.headline, subline: b.subline, expires_on: b.expires_on, baseUrl: baseUrlCache, brand: ME.tenant, treat: treatCache })}</div>
             <div>
               <h4>${esc(b.name)} ${b.sample ? '<span class="pill bumper">Demo</span>' : ''}</h4>
               <div class="meta"><span>${THEMES[b.theme][0]}</span><span>Created ${fmtDate(b.created_at)}</span><span>${b.expires_on ? 'Expires ' + fmtDate(b.expires_on) : 'No expiry'}</span></div>
@@ -356,7 +387,7 @@
     const el = m.el;
     const preview = () => {
       el.querySelectorAll('.themes button').forEach(b => b.classList.toggle('on', b.dataset.t === f.theme));
-      $('#bPrev', el).innerHTML = renderCoupon({ code: 'NAVYA2KX', serial: 1, theme: f.theme, headline: $('#bHead', el).value || 'Scratch & Win', subline: $('#bSub', el).value, expires_on: $('#bExp', el).value, baseUrl: baseUrlCache });
+      $('#bPrev', el).innerHTML = renderCoupon({ code: 'DEMO2KXP', serial: 1, theme: f.theme, headline: $('#bHead', el).value || 'Scratch & Win', subline: $('#bSub', el).value, expires_on: $('#bExp', el).value, baseUrl: baseUrlCache, brand: ME.tenant, treat: treatCache });
       fitPreview();
       const n = +$('#bCount', el).value || 0;
       $('#bSheets', el).textContent = n ? `${Math.ceil(n / 8)} A4 sheet${n > 8 ? 's' : ''}` : '';
@@ -445,8 +476,8 @@
       $('#rows').innerHTML = rows.map(r => {
         const expired = r.reward_expires && r.reward_expires < new Date().toISOString().slice(0, 10) && r.status === 'claimed';
         const msg = r.gift_kind === 'prize'
-          ? `Hi ${r.customer_name.split(' ')[0]}! 🎉 Thanks for playing Navya Bakers Scratch & Win. Your reward *${r.gift_name}* (code ${r.reward_code}) is waiting for you — valid till ${fmtDate(r.reward_expires)}. See you at Navya Bake Shop!`
-          : `Hi ${r.customer_name.split(' ')[0]}! Thanks for playing Navya Bakers Scratch & Win 🍰 Here's a little something for your next visit…`;
+          ? `Hi ${r.customer_name.split(' ')[0]}! 🎉 Thanks for playing ${ME.tenant.name} Scratch & Win. Your reward *${r.gift_name}* (code ${r.reward_code}) is waiting for you — valid till ${fmtDate(r.reward_expires)}. See you at ${ME.tenant.name}!`
+          : `Hi ${r.customer_name.split(' ')[0]}! Thanks for playing ${ME.tenant.name} Scratch & Win 🍰 Here's a little something for your next visit…`;
         return `<tr>
           <td data-label="When" style="white-space:nowrap">${fmtTime(r.claimed_at)}</td>
           <td data-label="Customer"><b>${esc(r.customer_name)}</b><small>${fmtPhone(r.phone)} <a class="wa-link" href="https://wa.me/91${r.phone}?text=${encodeURIComponent(msg)}" target="_blank" title="Message on WhatsApp">${WA_ICON}</a>${r.consent ? '' : ' · no offers'}</small></td>
@@ -493,7 +524,7 @@
         if (banner[0] === 'stop' && navigator.vibrate) navigator.vibrate([120, 60, 120]);
         out.innerHTML = `<div class="rcard">
           <div class="rbanner ${banner[0]}"><span>${banner[1]}</span><div><b>${banner[2]}</b><small>${esc(banner[3])}</small></div></div>
-          ${c.gift_image ? `<img class="rimg" src="${esc(c.gift_image)}" alt="">` : `<div class="rimg">${win ? '🎁' : '🎟️'}</div>`}
+          <div class="rimg">${giftPic(c.gift_image, win ? '🎁' : '🎟️')}</div>
           <h2>${esc(c.gift_name || 'Unscratched coupon')}</h2>
           <dl>
             <dt>Customer</dt><dd>${esc(c.customer_name || '—')}</dd>
@@ -527,7 +558,7 @@
           await scanner.stop().catch(() => {}); scanner = null;
           $('#camBtn').textContent = '📷 Scan again'; $('#reader').innerHTML = '';
           if (navigator.vibrate) navigator.vibrate(60);
-          $('#code').value = text.replace(/^NAVYA-REWARD:/i, '');
+          $('#code').value = text.replace(/^(NAVYA-)?REWARD:/i, '');
           lookup(text);
         });
       } catch (e) {
@@ -539,47 +570,127 @@
   }
 
   // ---------------------------------------------------------------- settings
+  // Shrinks an uploaded logo to fit 480×200 (keeps transparency) and returns a data URI.
+  function readLogo(file) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        const k = Math.min(1, 480 / img.width, 200 / img.height);
+        const c = document.createElement('canvas');
+        c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        URL.revokeObjectURL(img.src);
+        let out = c.toDataURL('image/webp', 0.9);
+        if (!out.startsWith('data:image/webp')) out = c.toDataURL('image/png');
+        resolve(out);
+      };
+      img.onerror = () => reject(new Error('That file is not an image'));
+      img.src = URL.createObjectURL(file);
+    });
+  }
+
   async function settings() {
     const s = await api('/settings');
+    let logo = s.logo || '';
     view.innerHTML = `
-      <div class="page-head"><div><h1>Settings</h1><p>Shop details, coupon rules and admin password.</p></div></div>
+      <div class="page-head"><div><h1>Settings</h1><p>Your shop's details, branding, coupon rules and password.</p></div></div>
       <div class="dash">
-        <div class="card">
-          <h3>Coupon rules</h3>
-          <label class="label">Website address printed in QR codes</label>
-          <input class="input" id="sUrl" placeholder="${esc(s.detected_url)}" value="${esc(s.public_url)}">
-          <p class="hint">Leave blank to use <b>${esc(s.detected_url)}</b> (phones must be on the same Wi-Fi). Set your live domain before printing real coupons — e.g. https://scratch.navyabakers.com</p>
-          <label class="switch"><input type="checkbox" id="sOne" ${s.one_per_phone === '1' ? 'checked' : ''}> Allow only one win per mobile number in each campaign</label>
-          <label class="label">Terms shown to customers</label>
-          <textarea class="input" id="sTerms" rows="3">${esc(s.terms)}</textarea>
-          <div class="grid2">
-            <div><label class="label">Shop name</label><input class="input" id="sName" value="${esc(s.shop_name)}"></div>
-            <div><label class="label">WhatsApp number</label><input class="input" id="sWa" value="${esc(s.whatsapp)}"></div>
+        <div class="stack">
+          <div class="card">
+            <h3>Shop profile &amp; branding</h3>
+            <p class="hint" style="margin-top:-6px">Shown on the customer's phone and on printed coupons.</p>
+            <label class="label">Logo</label>
+            <div class="logo-pick">
+              <div class="logo-box" id="logoBox"></div>
+              <label class="btn sm">Upload logo<input type="file" accept="image/*" hidden id="logoFile"></label>
+              <button class="btn sm danger" id="logoClear" type="button">Remove</button>
+            </div>
+            <p class="hint">PNG or SVG with a transparent background looks best.</p>
+            <div class="grid2">
+              <div><label class="label">Shop name</label><input class="input" id="sName" maxlength="80" value="${esc(s.name)}"></div>
+              <div><label class="label">Tagline</label><input class="input" id="sTag" maxlength="120" placeholder="e.g. The Tempting Taste" value="${esc(s.tagline)}"></div>
+            </div>
+            <div class="grid2">
+              <div><label class="label">Main colour</label><div class="color-row"><input type="color" id="sColor" value="${esc(s.color)}"><input class="input" id="sColorT" value="${esc(s.color)}" maxlength="7"></div></div>
+              <div><label class="label">Dark accent colour</label><div class="color-row"><input type="color" id="sColor2" value="${esc(s.color2)}"><input class="input" id="sColor2T" value="${esc(s.color2)}" maxlength="7"></div></div>
+            </div>
+            <label class="label">Address</label>
+            <input class="input" id="sAddr" maxlength="200" placeholder="e.g. Central Junction, Angamaly" value="${esc(s.address)}">
+            <div class="grid2">
+              <div><label class="label">Google Maps link <i>(optional)</i></label><input class="input" id="sMaps" placeholder="Made from the address if blank" value="${esc(s.maps_url)}"></div>
+              <div><label class="label">Website <i>(optional)</i></label><input class="input" id="sWeb" placeholder="https://" value="${esc(s.website)}"></div>
+            </div>
+            <div class="grid2">
+              <div><label class="label">WhatsApp number</label><input class="input" id="sWa" placeholder="91XXXXXXXXXX" value="${esc(s.whatsapp)}"></div>
+              <div><label class="label">Footer line <i>(optional)</i></label><input class="input" id="sFoot" maxlength="120" placeholder="e.g. Since 1984 · 100% natural" value="${esc(s.footer)}"></div>
+            </div>
+            <label class="label">Areas suggested on the customer form <i>(comma separated)</i></label>
+            <input class="input" id="sAreas" placeholder="e.g. Angamaly, Kalady, Aluva" value="${esc(s.areas)}">
           </div>
-          <div class="modal-foot"><button class="btn primary" id="sSave">Save settings</button></div>
         </div>
         <div class="stack">
           <div class="card">
-            <h3>Admin password</h3>
-            <input class="input" type="password" id="sPw" placeholder="New password (min 6 characters)" autocomplete="new-password">
-            <div class="modal-foot"><button class="btn dark" id="sPwSave">Change password</button></div>
+            <h3>Coupon rules</h3>
+            <label class="label">Website address printed in QR codes</label>
+            <input class="input" id="sUrl" placeholder="${esc(s.detected_url)}" value="${esc(s.public_url)}">
+            <p class="hint">Leave blank to use <b>${esc(s.detected_url)}</b>. Set this before printing real coupons if you have your own web address.</p>
+            <label class="switch"><input type="checkbox" id="sOne" ${s.one_per_phone ? 'checked' : ''}> Allow only one win per mobile number in each campaign</label>
+            <label class="label">Terms shown to customers</label>
+            <textarea class="input" id="sTerms" rows="3">${esc(s.terms)}</textarea>
+          </div>
+          <div class="card">
+            <h3>Your plan</h3>
+            <p class="hint" style="margin-top:0">Username: <b>${esc(s.slug)}</b><br>
+              Coupons: <b>${s.coupons_used}${s.max_coupons != null ? ' of ' + s.max_coupons : ''}</b> used${s.max_coupons == null ? ' (no limit)' : ''}<br>
+              ${s.plan_expires_on ? `Active till <b>${fmtDate(s.plan_expires_on)}</b>` : 'No expiry date'}</p>
+          </div>
+          <div class="card">
+            <h3>Change password</h3>
+            ${ME.impersonated ? '<p class="hint" style="margin:0">You are viewing as the Super Admin. Reset this bakery&#39;s password from the Super Admin page.</p>' : `
+            <input class="input" type="password" id="sPwOld" placeholder="Current password" autocomplete="current-password">
+            <input class="input" type="password" id="sPw" placeholder="New password (min 8 characters)" autocomplete="new-password" style="margin-top:10px">
+            <div class="modal-foot"><button class="btn dark" id="sPwSave">Change password</button></div>`}
           </div>
           ${s.has_sample ? `<div class="card">
             <h3>Demo data</h3>
-            <p class="hint" style="margin-top:0">The "Festive Sweet Scratch" batch and its sample customers were added so the dashboard isn't empty. Remove them before going live.</p>
+            <p class="hint" style="margin-top:0">The sample batch and its made-up customers were added so the dashboard isn't empty. Remove them before going live.</p>
             <div class="modal-foot"><button class="btn danger" id="sClear">Remove demo batch &amp; customers</button></div>
           </div>` : ''}
         </div>
-      </div>`;
+      </div>
+      <div class="modal-foot" style="position:sticky;bottom:12px"><button class="btn primary" id="sSave" style="min-width:200px;height:48px">Save settings</button></div>`;
+
+    const drawLogo = () => { $('#logoBox').innerHTML = logo ? `<img src="${esc(logo)}" alt="">` : 'No logo<br>(name is shown)'; };
+    drawLogo();
+    $('#logoFile').onchange = async e => {
+      const f = e.target.files[0]; if (!f) return;
+      try { logo = await readLogo(f); drawLogo(); toast('Logo ready — remember to save'); } catch (err) { toast(err.message); }
+    };
+    $('#logoClear').onclick = () => { logo = ''; drawLogo(); };
+    for (const [pick, text] of [['#sColor', '#sColorT'], ['#sColor2', '#sColor2T']]) {
+      $(pick).oninput = () => { $(text).value = $(pick).value; };
+      $(text).oninput = () => { if (/^#[0-9a-f]{6}$/i.test($(text).value)) $(pick).value = $(text).value; };
+    }
     $('#sSave').onclick = async () => {
       try {
-        await api('/settings', { method: 'PUT', body: { public_url: $('#sUrl').value.trim(), one_per_phone: $('#sOne').checked ? '1' : '0', terms: $('#sTerms').value, shop_name: $('#sName').value, whatsapp: $('#sWa').value } });
+        await api('/settings', { method: 'PUT', body: {
+          name: $('#sName').value, tagline: $('#sTag').value, logo, color: $('#sColorT').value, color2: $('#sColor2T').value,
+          address: $('#sAddr').value, maps_url: $('#sMaps').value, website: $('#sWeb').value, whatsapp: $('#sWa').value,
+          footer: $('#sFoot').value, areas: $('#sAreas').value, public_url: $('#sUrl').value.trim(),
+          one_per_phone: $('#sOne').checked, terms: $('#sTerms').value,
+        } });
+        ME = await (await fetch('/api/admin/me')).json();
+        applyBrand(ME.tenant);
         toast('Settings saved');
       } catch (e) { toast(e.message); }
     };
-    $('#sPwSave').onclick = async () => {
-      try { await api('/settings', { method: 'PUT', body: { new_password: $('#sPw').value } }); $('#sPw').value = ''; toast('Password changed'); }
-      catch (e) { toast(e.message); }
+    const pw = $('#sPwSave');
+    if (pw) pw.onclick = async () => {
+      try {
+        await api('/password', { method: 'PUT', body: { current: $('#sPwOld').value, password: $('#sPw').value } });
+        $('#sPwOld').value = $('#sPw').value = '';
+        toast('Password changed — other devices have been signed out');
+      } catch (e) { toast(e.message); }
     };
     const clr = $('#sClear');
     if (clr) clr.onclick = async () => {
@@ -589,5 +700,5 @@
   }
 
   // ---------------------------------------------------------------- boot
-  fetch('/api/admin/me').then(r => r.json()).then(d => d.admin ? showShell() : showLogin());
+  showShell();
 })();

@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { promisify } = require('util');
 const { Pool, types } = require('pg');
 
 // Return values in the same shapes the rest of the app (and the browser) expects.
@@ -39,7 +40,7 @@ async function tx(fn) {
   }
 }
 
-// ---------- settings (cached briefly per instance) ----------
+// ---------- platform settings (cached briefly per instance) ----------
 let cache = null, cacheAt = 0;
 async function allSettings() {
   if (!cache || Date.now() - cacheAt > 5000) {
@@ -57,6 +58,22 @@ async function setSetting(key, value, client = pool) {
   cache = null;
 }
 
+// ---------- passwords (scrypt, salted) ----------
+const scrypt = promisify(crypto.scrypt);
+async function hashPassword(pw) {
+  const salt = crypto.randomBytes(16);
+  const hash = await scrypt(String(pw), salt, 64);
+  return `scrypt$${salt.toString('base64')}$${hash.toString('base64')}`;
+}
+async function verifyPassword(pw, stored) {
+  const [alg, salt, hash] = String(stored || '').split('$');
+  if (alg !== 'scrypt' || !salt || !hash) return false;
+  const want = Buffer.from(hash, 'base64');
+  const got = await scrypt(String(pw), Buffer.from(salt, 'base64'), want.length);
+  return crypto.timingSafeEqual(want, got);
+}
+const randomPassword = () => crypto.randomBytes(9).toString('base64url');
+
 // ---------- codes & batches ----------
 const CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; // no 0/O/1/I/L
 function randomCode(len) {
@@ -70,16 +87,16 @@ const utcNow = () => new Date().toISOString().replace('T', ' ').slice(0, 19);
 const daysFromNow = n => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
 
 // Inserts all coupons in one round trip; regenerates the (very rare) codes that collide.
-async function createBatch({ name, headline, subline, theme, expires_on, count, sample = 0 }, client) {
+async function createBatch({ tenantId, name, headline, subline, theme, expires_on, count, sample = 0 }, client) {
   const run = async c => {
-    const { id } = await one(`INSERT INTO batches(name, headline, subline, theme, expires_on, count, sample)
-      VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id`, [name, headline, subline, theme, expires_on || null, count, sample], c);
+    const { id } = await one(`INSERT INTO batches(tenant_id, name, headline, subline, theme, expires_on, count, sample)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`, [tenantId, name, headline, subline, theme, expires_on || null, count, sample], c);
     let pending = Array.from({ length: count }, (_, i) => i + 1);
     while (pending.length) {
       const codes = pending.map(() => randomCode(8));
-      const done = await q(`INSERT INTO coupons(code, batch_id, serial)
-        SELECT code, $2, serial FROM unnest($1::text[], $3::int[]) AS t(code, serial)
-        ON CONFLICT (code) DO NOTHING RETURNING serial`, [codes, id, pending], c);
+      const done = await q(`INSERT INTO coupons(tenant_id, code, batch_id, serial)
+        SELECT $4, code, $2, serial FROM unnest($1::text[], $3::int[]) AS t(code, serial)
+        ON CONFLICT (code) DO NOTHING RETURNING serial`, [codes, id, pending, tenantId], c);
       const ok = new Set(done.map(r => r.serial));
       pending = pending.filter(s => !ok.has(s));
     }
@@ -88,75 +105,64 @@ async function createBatch({ name, headline, subline, theme, expires_on, count, 
   return client ? run(client) : tx(run);
 }
 
-// ---------- schema + first-run seed (once per database, safe under concurrency) ----------
-async function seed(c) {
-  const pw = process.env.ADMIN_PASSWORD || crypto.randomBytes(6).toString('base64url');
-  const defaults = {
-    session_secret: crypto.randomBytes(32).toString('hex'),
-    admin_password: pw,
-    shop_name: 'Navya Bakers',
-    tagline: 'The Tempting Taste',
-    public_url: '',
-    whatsapp: '919400197802',
-    one_per_phone: '0',
-    terms: 'One coupon per customer visit. Reward valid at Navya Bake Shop outlets till the date shown. Not exchangeable for cash.',
-  };
-  for (const [k, v] of Object.entries(defaults)) await setSetting(k, v, c);
-  if (!process.env.ADMIN_PASSWORD) console.log(`\n  First run — admin password: ${pw}\n  (change it in Settings, or set ADMIN_PASSWORD before the first start)\n`);
-
+// ---------- bakeries (tenants) ----------
+// Starter gifts for a new bakery — neutral icons, so nothing depends on another bakery's photos.
+async function addStarterGifts(tenantId, bakeryName, client = pool) {
   const gifts = [
-    ['Celebration Cake (1 kg)', 'Our signature red velvet celebration cake — on the house!', '/img/cake.webp', 'prize', 1, 3, 30, 1],
-    ['Choco-Chip Cookie Box', 'A box of freshly baked choco-chip cookies.', '/img/cookies.webp', 'prize', 14, 60, 15, 0],
-    ['Caramel Pudding', 'Silky caramel pudding, made with 100% natural flavours.', '/img/desserts.webp', 'prize', 12, 50, 15, 0],
-    ['Free Savoury Combo', 'Crunchy savouries combo pack — perfect for tea time.', '/img/savouries.webp', 'prize', 14, 80, 15, 0],
-    ['Fresh Bread Loaf', 'A fresh wholewheat bread loaf from our ovens.', '/img/bread.webp', 'prize', 16, 100, 7, 0],
-    ['15% Off Your Next Bill', 'Flat 15% off on your next purchase above ₹300.', '/img/snacks.webp', 'prize', 18, null, 30, 0],
-    ['Better luck next time', 'Thank you for choosing Navya! Keep scanning — more sweet surprises are coming.', '', 'lose', 25, null, 0, 0],
+    ['Free Pastry', 'One pastry of your choice — on the house!', 'emoji:🍰', 'prize', 15, 50, 15],
+    ['Cookie Box', 'A box of freshly baked cookies.', 'emoji:🍪', 'prize', 15, 50, 15],
+    ['10% Off Your Next Bill', 'Flat 10% off on your next purchase.', 'emoji:🎟️', 'prize', 20, null, 30],
+    ['Better luck next time', `Thank you for choosing ${bakeryName}! Keep scanning — more sweet surprises are coming.`, '', 'lose', 30, null, 0],
   ];
-  const giftRows = [];
   for (const g of gifts) {
-    giftRows.push(await one(`INSERT INTO gifts(name, description, image, kind, weight, stock_total, valid_days, bumper)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`, g, c));
+    await q(`INSERT INTO gifts(tenant_id, name, description, image, kind, weight, stock_total, valid_days)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, [tenantId, ...g], client);
   }
+}
 
-  // Demo campaign: coupons to print + a few already-claimed ones so the dashboard has life.
-  const batchId = await createBatch({
-    name: 'Festive Sweet Scratch', headline: 'Scratch & Win', subline: 'A sweet surprise is waiting for you!',
-    theme: 'orange', expires_on: daysFromNow(60), count: 24, sample: 1,
-  }, c);
-  const sample = [
-    ['Anjali Menon', '9847012345', 'Angamaly', 1], ['Rahul Varghese', '9895123456', 'Kalady', 2],
-    ['Fathima Rasheed', '9446234567', 'Aluva', 0], ['Joseph Thomas', '9744345678', 'Angamaly', 3],
-    ['Sneha Nair', '9961456789', 'Perumbavoor', 4], ['Arjun Das', '9037567890', 'Chalakudy', 6],
-    ['Meera Joseph', '9567678901', 'Angamaly', 5], ['Nikhil Paul', '8089789012', 'Kalady', 1],
-    ['Divya Krishnan', '9633890123', 'Aluva', 2],
-  ];
-  const coupons = await q('SELECT id FROM coupons WHERE batch_id = $1 ORDER BY serial LIMIT $2', [batchId, sample.length], c);
-  const iso = d => d.toISOString().replace('T', ' ').slice(0, 19);
-  for (const [i, [name, phone, area, giftIdx]] of sample.entries()) {
-    const gift = giftRows[giftIdx];
-    const at = new Date(Date.now() - (i * 26 + 3) * 3600000);
-    const win = gift.kind === 'prize';
-    const redeemed = i % 3 === 0 && win ? iso(new Date(at.getTime() + 20 * 3600000)) : null;
-    await q(`UPDATE coupons SET status=$1, scans=$2, first_scan_at=$3, gift_id=$4, gift_name=$5, gift_kind=$6,
-      reward_code=$7, reward_expires=$8, claim_token=$9, customer_name=$10, phone=$11, area=$12, consent=1,
-      claimed_at=$3, redeemed_at=$13 WHERE id=$14`,
-      [redeemed ? 'redeemed' : 'claimed', 1 + (i % 2), iso(at), gift.id, gift.name, gift.kind,
-        win ? 'NB' + randomCode(6) : null,
-        win ? new Date(at.getTime() + gift.valid_days * 86400000).toISOString().slice(0, 10) : null,
-        crypto.randomBytes(16).toString('hex'), name, phone, area, redeemed, coupons[i].id], c);
-    await q('UPDATE gifts SET stock_used = stock_used + 1 WHERE id = $1', [gift.id], c);
+// ---------- schema, upgrades and first-run setup (once per database, safe under concurrency) ----------
+async function migrateSingleBakery(c) {
+  // Data from before multi-bakery support becomes the first bakery: Navya Bakers.
+  const orphan = await one(`SELECT
+      (SELECT COUNT(*) FROM gifts WHERE tenant_id IS NULL) + (SELECT COUNT(*) FROM batches WHERE tenant_id IS NULL)
+      + (SELECT COUNT(*) FROM coupons WHERE tenant_id IS NULL) AS n`, [], c);
+  if (orphan.n) {
+    const s = Object.fromEntries((await q('SELECT key, value FROM settings', [], c)).map(r => [r.key, r.value]));
+    let t = await one("SELECT id FROM tenants WHERE slug = 'navya'", [], c);
+    if (!t) {
+      t = await one(`INSERT INTO tenants(slug, name, tagline, logo, color, color2, address, maps_url, website, whatsapp, footer,
+          areas, terms, public_url, one_per_phone, password_hash)
+        VALUES('navya', $1, $2, '/img/navya-logo.svg', '#F47216', '#963B1F', 'Central Junction, Angamaly',
+          'https://maps.google.com/?q=Navya+Bakers+Central+Junction+Angamaly', 'https://navyabakers.com', $3,
+          'Since 1984 · 100% natural colours & flavours', 'Angamaly, Kalady, Aluva, Perumbavoor, Chalakudy, Kochi, Thrissur',
+          $4, $5, $6, $7) RETURNING id`,
+      [s.shop_name || 'Navya Bakers', s.tagline || 'The Tempting Taste', s.whatsapp || '', s.terms || '', s.public_url || '',
+        s.one_per_phone === '1' ? 1 : 0, await hashPassword(s.admin_password || randomPassword())], c);
+    }
+    for (const table of ['gifts', 'batches']) await q(`UPDATE ${table} SET tenant_id = $1 WHERE tenant_id IS NULL`, [t.id], c);
+    await q('UPDATE coupons c SET tenant_id = b.tenant_id FROM batches b WHERE b.id = c.batch_id AND c.tenant_id IS NULL', [], c);
+    console.log('  Upgraded to multi-bakery: existing data now belongs to bakery "navya".');
   }
-  await setSetting('seeded', '1', c);
+  // Single-bakery settings now live on the bakery row.
+  await q(`DELETE FROM settings WHERE key IN ('admin_password','shop_name','tagline','whatsapp','terms','public_url','one_per_phone','seeded')`, [], c);
+  // From now on every row must belong to a bakery.
+  for (const table of ['gifts', 'batches', 'coupons']) await q(`ALTER TABLE ${table} ALTER COLUMN tenant_id SET NOT NULL`, [], c);
 }
 
 async function init() {
   const schema = fs.readFileSync(path.join(__dirname, 'db', 'schema.sql'), 'utf8');
   await tx(async c => {
-    await c.query('SELECT pg_advisory_xact_lock(1984)'); // only one instance migrates/seeds at a time
+    await c.query('SELECT pg_advisory_xact_lock(1984)'); // only one instance migrates at a time
     await c.query(schema);
-    const seeded = await one("SELECT 1 FROM settings WHERE key = 'seeded'", [], c);
-    if (!seeded) await seed(c);
+    await migrateSingleBakery(c);
+    if (!await one("SELECT 1 FROM settings WHERE key = 'session_secret'", [], c)) {
+      await setSetting('session_secret', crypto.randomBytes(32).toString('hex'), c);
+    }
+    if (!await one("SELECT 1 FROM settings WHERE key = 'super_password_hash'", [], c)) {
+      const pw = process.env.SUPER_ADMIN_PASSWORD || randomPassword();
+      await setSetting('super_password_hash', await hashPassword(pw), c);
+      if (!process.env.SUPER_ADMIN_PASSWORD) console.log(`\n  Super admin password (first run): ${pw}\n  Change it on the Super Admin page, or set SUPER_ADMIN_PASSWORD before the first start.\n`);
+    }
   });
   cache = null;
 }
@@ -167,4 +173,7 @@ function ready() {
   return readyPromise;
 }
 
-module.exports = { pool, q, one, tx, ready, getSetting, setSetting, createBatch, randomCode, utcNow, daysFromNow };
+module.exports = {
+  pool, q, one, tx, ready, getSetting, setSetting, createBatch, addStarterGifts, randomCode, utcNow, daysFromNow,
+  hashPassword, verifyPassword, randomPassword,
+};

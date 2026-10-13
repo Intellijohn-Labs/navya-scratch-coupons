@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Print coupons · Navya</title>
-<link rel="icon" href="/img/navya-logo.svg">
+<title>Print coupons · Scratch & Win</title>
+<link rel="icon" href="/img/platform-icon.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Albert+Sans:wght@400;600;700;800;900&family=Fraunces:ital,opsz,wght@0,9..144,800;1,9..144,500&display=swap" rel="stylesheet">
@@ -62,7 +62,7 @@
     <label>Design
       <select id="theme">
         <option value="">Campaign default</option>
-        <option value="orange">Tempting Orange</option>
+        <option value="orange">Brand colours</option>
         <option value="chocolate">Rich Chocolate</option>
         <option value="festive">Festive Red</option>
       </select>
@@ -85,10 +85,12 @@
   const id = location.pathname.split('/').pop();
   const r = await fetch('/api/admin/batches/' + id);
   if (r.status === 401) { location.href = '/admin'; return; }
-  const { batch, coupons, public_url } = await r.json();
+  const { batch, coupons, public_url, brand, treats: giftTreats } = await r.json();
+  document.title = `Print coupons · ${brand.name}`;
   document.getElementById('title').textContent = `${batch.name} — ${batch.count} coupons`;
   document.getElementById('baseUrl').textContent = public_url;
-  const treats = ['/img/cake.webp', '/img/cookies.webp', '/img/desserts.webp', '/img/bread.webp', '/img/savouries.webp', '/img/snacks.webp'];
+  // Each coupon shows one of the bakery's own gift pictures, in rotation.
+  const treats = giftTreats.length ? giftTreats : ['emoji:🎁'];
   const qs = new URLSearchParams(location.search);
   if (qs.get('theme')) document.getElementById('theme').value = qs.get('theme');
 
@@ -104,7 +106,7 @@
       for (const c of list.slice(p, p + 8)) {
         html += '<div class="cell">' + renderCoupon({
           code: c.code, serial: c.serial, theme, headline: batch.headline, subline: batch.subline,
-          expires_on: batch.expires_on, baseUrl: public_url, treat: treats[(c.serial - 1) % treats.length],
+          expires_on: batch.expires_on, baseUrl: public_url, treat: treats[(c.serial - 1) % treats.length], brand,
         }) + '</div>';
       }
       html += `<div class="sheet-foot">${batch.name} · page ${p / 8 + 1} of ${Math.ceil(list.length / 8)} · cut along the marks</div></div>`;

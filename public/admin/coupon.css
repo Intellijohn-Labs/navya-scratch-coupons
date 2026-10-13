@@ -41,7 +41,8 @@
 .cp-steps span { display: flex; align-items: center; gap: .9mm; font-size: 2.35mm; font-weight: 700; padding: .8mm 1.8mm .8mm .9mm; border-radius: 99px; background: rgba(255,255,255,.18); border: .2mm solid rgba(255,255,255,.35); }
 .cp-steps b { display: grid; place-items: center; width: 3.4mm; height: 3.4mm; border-radius: 50%; background: var(--gold); color: var(--stub-ink); font-size: 2mm; }
 .cp-foot { position: relative; margin-top: 2mm; font-size: 2.05mm; color: var(--sub); opacity: .92; display: flex; justify-content: space-between; align-items: baseline; white-space: nowrap; }
-.cp-foot .cp-tag { font-size: 2.5mm; }
+.cp-foot { gap: 2mm; }
+.cp-foot .cp-tag { font-size: 2.5mm; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 
 .cp-treat { position: absolute; right: -5mm; top: -5mm; width: 23mm; height: 23mm; border-radius: 50%; overflow: hidden; border: 1.1mm solid rgba(255,255,255,.85); box-shadow: 0 1mm 3mm rgba(0,0,0,.25); }
 .cp-treat img { width: 100%; height: 100%; object-fit: cover; }
@@ -64,3 +65,6 @@
 .cp-code { font-size: 3.3mm; font-weight: 900; letter-spacing: .25mm; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .cp-serial { font-size: 1.9mm; opacity: .65; margin-top: .3mm; letter-spacing: .2mm; }
 .cp-hand { font-size: 1.95mm; line-height: 1.2; margin-top: 1.2mm; font-weight: 600; opacity: .8; }
+.coupon .cp-treat .emoji-pic { display: grid; place-items: center; width: 100%; height: 100%; background: #FFF6EC; font-size: 11mm; padding: 2mm 2mm 0 0; }
+.cp-name { display: block; max-width: 34mm; font-size: 3.1mm; font-weight: 900; color: var(--c3); line-height: 1.1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cp-logo img { max-width: 32mm; object-fit: contain; }

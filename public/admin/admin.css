@@ -283,3 +283,24 @@ td small { color: var(--muted); display: block; }
   .nav a { justify-content: center; padding: 12px; }
   .main { padding: 24px 22px 60px; }
 }
+
+/* ---------- multi-bakery ---------- */
+.login-icon { height: 64px; border-radius: 16px; }
+.brand img { max-width: 92px; object-fit: contain; }
+.side-initial { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 12px; background: var(--orange); color: #fff; font-weight: 900; font-size: 18px; flex: none; }
+.side-initial:empty { display: none; }
+.imp-banner { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; background: #2C6FD6; color: #fff; padding: 10px 16px; border-radius: 12px; margin-bottom: 18px; font-weight: 600; }
+.imp-banner a { color: #fff; background: rgba(255,255,255,.18); padding: 6px 12px; border-radius: 9px; text-decoration: none; font-weight: 800; }
+.emoji-pic { display: grid; place-items: center; width: 100%; height: 100%; line-height: 1; }
+.thumb .emoji-pic { font-size: 20px; }
+.thumb img, .rimg img { width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }
+.thumb { overflow: hidden; }
+.rimg { overflow: hidden; }
+.gift-img .emoji-pic { font-size: 64px; }
+.img-pick button.opt .emoji-pic { font-size: 26px; }
+.logo-pick { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.logo-box { width: 120px; height: 64px; border-radius: 12px; border: 1.5px dashed #E2CDBB; display: grid; place-items: center; background: #fff; overflow: hidden; color: var(--muted); font-size: 12px; text-align: center; }
+.logo-box img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.color-row { display: flex; align-items: center; gap: 10px; }
+.color-row input[type=color] { width: 46px; height: 44px; border: 1.5px solid var(--line); border-radius: 11px; padding: 3px; background: #fff; cursor: pointer; }
+.plan-note { background: var(--orange-soft); border-radius: 12px; padding: 12px 14px; font-size: 13.5px; color: #6B4A38; margin-bottom: 14px; }

@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#1E1B2E">
+<meta name="robots" content="noindex">
+<title>Super Admin · Scratch & Win</title>
+<link rel="icon" href="/img/platform-icon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Albert+Sans:wght@400;500;600;700;800;900&family=Fraunces:opsz,wght@9..144,600;9..144,800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/admin/admin.css">
+<link rel="stylesheet" href="/super/super.css">
+</head>
+<body class="super">
+  <div id="login" class="login hidden">
+    <form class="login-card" id="loginForm">
+      <img src="/img/platform-icon.svg" alt="" class="login-icon">
+      <h1>Super Admin</h1>
+      <p>Scratch &amp; Win platform owner</p>
+      <input class="input" type="password" name="password" placeholder="Super admin password" autocomplete="current-password" autofocus>
+      <p class="err" id="loginErr"></p>
+      <button class="btn primary block">Sign in</button>
+    </form>
+  </div>
+
+  <div id="shell" class="shell hidden">
+    <aside class="side">
+      <div class="brand">
+        <img src="/img/platform-icon.svg" alt="" style="background:none;padding:0;height:40px">
+        <div><b>Scratch &amp; Win</b><small>Super Admin</small></div>
+      </div>
+      <nav class="nav" id="nav">
+        <a href="#bakeries" data-r="bakeries" title="Bakeries" aria-label="Bakeries"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 21h18M5 21V10l7-5 7 5v11M9 21v-6h6v6"/></svg><span>Bakeries</span></a>
+        <a href="#account" data-r="account" title="My account" aria-label="My account"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>My account</span></a>
+      </nav>
+      <div class="side-foot">
+        Platform owner
+        <button id="logout">Sign out</button>
+      </div>
+    </aside>
+    <main class="main" id="view"></main>
+  </div>
+
+  <div id="modalRoot"></div>
+
+<script src="/admin/coupon.js"></script>
+<script src="/super/super.js"></script>
+</body>
+</html>

@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#2B160D">
-<title>Navya Scratch & Win · Admin</title>
-<link rel="icon" href="/img/navya-logo.svg">
+<title>Scratch & Win · Bakery admin</title>
+<link rel="icon" href="/img/platform-icon.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Albert+Sans:wght@400;500;600;700;800;900&family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,800;1,9..144,500&display=swap" rel="stylesheet">
@@ -15,10 +15,11 @@
 <body>
   <div id="login" class="login hidden">
     <form class="login-card" id="loginForm">
-      <img src="/img/navya-logo.svg" alt="Navya Bake Shop">
+      <img src="/img/platform-icon.svg" alt="" class="login-icon">
       <h1>Scratch &amp; Win</h1>
-      <p>Coupon admin · sign in to continue</p>
-      <input class="input" type="password" name="password" placeholder="Admin password" autocomplete="current-password" autofocus>
+      <p>Bakery admin · sign in to continue</p>
+      <input class="input" name="username" placeholder="Username" autocomplete="username" autocapitalize="none" spellcheck="false" autofocus>
+      <input class="input" type="password" name="password" placeholder="Password" autocomplete="current-password" style="margin-top:10px">
       <p class="err" id="loginErr"></p>
       <button class="btn primary block">Sign in</button>
     </form>
@@ -27,8 +28,8 @@
   <div id="shell" class="shell hidden">
     <aside class="side">
       <div class="brand">
-        <img src="/img/navya-logo.svg" alt="Navya">
-        <div><b>Scratch &amp; Win</b><small>Coupon admin</small></div>
+        <img id="sideLogo" alt="" hidden><span id="sideInitial" class="side-initial"></span>
+        <div><b id="sideTitle">Scratch &amp; Win</b><small>Scratch &amp; Win admin</small></div>
       </div>
       <nav class="nav" id="nav">
         <a href="#dashboard" data-r="dashboard" title="Dashboard" aria-label="Dashboard"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="7" height="9" rx="2"/><rect x="14" y="3" width="7" height="5" rx="2"/><rect x="14" y="12" width="7" height="9" rx="2"/><rect x="3" y="16" width="7" height="5" rx="2"/></svg><span>Dashboard</span></a>
@@ -39,11 +40,11 @@
         <a href="#settings" data-r="settings" title="Settings" aria-label="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg><span>Settings</span></a>
       </nav>
       <div class="side-foot">
-        Navya Bake Shop · Angamaly
+        <span id="sideName"></span>
         <button id="logout">Sign out</button>
       </div>
     </aside>
-    <main class="main" id="view"></main>
+    <main class="main"><div id="impBanner" class="imp-banner" hidden></div><div id="view"></div></main>
   </div>
 
   <div id="modalRoot"></div>

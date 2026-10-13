@@ -6,8 +6,8 @@
 <meta name="color-scheme" content="light only">
 <meta name="format-detection" content="telephone=no">
 <meta name="theme-color" content="#F47216">
-<title>Navya Bakers · Scratch & Win</title>
-<link rel="icon" href="/img/navya-logo.svg">
+<title>Scratch & Win</title>
+<link rel="icon" id="favicon" href="/img/platform-icon.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Albert+Sans:wght@400;500;600;700;800;900&family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,800;1,9..144,500&display=swap" rel="stylesheet">
@@ -22,8 +22,9 @@
 
 <main class="app">
   <header class="top">
-    <img src="/img/navya-logo.svg" alt="Navya Bake Shop" class="logo">
-    <div class="tag">The Tempting Taste</div>
+    <img id="brandLogo" alt="" class="logo" hidden>
+    <div id="brandName" class="brand-name" hidden></div>
+    <div class="tag" id="brandTagline"></div>
   </header>
 
   <!-- Loading -->
@@ -58,8 +59,8 @@
       <div class="row2">
         <label class="field">
           <span>Area / locality</span>
-          <input name="area" list="areas" placeholder="Angamaly" maxlength="60">
-          <datalist id="areas"><option>Angamaly</option><option>Kalady</option><option>Aluva</option><option>Perumbavoor</option><option>Chalakudy</option><option>Kochi</option><option>Thrissur</option></datalist>
+          <input name="area" list="areas" placeholder="Your area" maxlength="60">
+          <datalist id="areas"></datalist>
         </label>
         <label class="field">
           <span>Birthday <i>(optional)</i></span>
@@ -110,7 +111,7 @@
           <div class="t-right"><img id="resQr" alt="Reward QR code"></div>
         </div>
         <ol class="steps">
-          <li><b>Visit</b> any Navya Bake Shop</li>
+          <li><b>Visit</b> <span data-bind="shopName">our shop</span></li>
           <li><b>Show</b> this screen at the counter</li>
           <li><b>Enjoy</b> your treat!</li>
         </ol>
@@ -125,7 +126,7 @@
           <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2Zm5.3 14.1c-.2.6-1.3 1.2-1.8 1.2-.5.1-1 .2-3.4-.7-2.8-1.1-4.6-4-4.8-4.2-.1-.2-1.1-1.5-1.1-2.9s.7-2.1 1-2.4c.3-.3.6-.3.8-.3h.6c.2 0 .4 0 .6.5l.8 2c.1.2.1.4 0 .5l-.3.5-.4.4c-.1.1-.3.3-.1.6.2.3.8 1.3 1.7 2.1 1.2 1 2.1 1.4 2.4 1.5.3.1.5.1.6-.1l.9-1c.2-.3.4-.2.6-.1l1.9.9c.3.1.5.2.5.3.1.2.1.7-.1 1.2Z"/></svg>
           Share with friends
         </a>
-        <a class="btn ghost" href="https://maps.google.com/?q=Navya+Bakers+Central+Junction+Angamaly" target="_blank" rel="noopener">📍 Find our shop</a>
+        <a class="btn ghost" id="mapsLink" target="_blank" rel="noopener" hidden>📍 Find our shop</a>
       </div>
       <p class="fine">Tip: take a screenshot of this page. You can also reopen this coupon on this phone anytime.</p>
     </div>
@@ -138,13 +139,13 @@
       <h2 id="stTitle"></h2>
       <p class="muted" id="stText"></p>
       <div class="claimed-by" id="stWho" hidden></div>
-      <a class="btn ghost" href="https://navyabakers.com" target="_blank" rel="noopener">Explore Navya Bakers</a>
+      <a class="btn ghost" id="siteLink" target="_blank" rel="noopener" hidden>Visit <span data-bind="shopName">our website</span></a>
     </div>
   </section>
 
   <footer class="foot">
-    <span>Navya Bake Shop · Central Junction, Angamaly</span>
-    <span class="since">Since 1984 · 100% natural colours &amp; flavours</span>
+    <span id="footAddress"></span>
+    <span class="since" id="footLine"></span>
   </footer>
 </main>
 

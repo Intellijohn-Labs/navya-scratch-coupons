@@ -25,8 +25,40 @@
     show('s-status');
   }
 
+  // Mix a #rrggbb colour towards white (amount > 0) or black (amount < 0).
+  function shade(hex, amount) {
+    const n = parseInt(String(hex || '#F47216').slice(1), 16);
+    const t = amount < 0 ? 0 : 255, p = Math.abs(amount);
+    const ch = sh => Math.round(((n >> sh) & 255) + (t - ((n >> sh) & 255)) * p);
+    return '#' + ((1 << 24) | (ch(16) << 16) | (ch(8) << 8) | ch(0)).toString(16).slice(1);
+  }
+
+  let brand = { name: 'our shop' };
+  function applyBrand(b) {
+    if (!b) return;
+    brand = b;
+    document.title = `${b.name} · Scratch & Win`;
+    const root = document.documentElement.style;   // body theme classes still override for the other designs
+    root.setProperty('--accent', b.color);
+    root.setProperty('--accent-2', shade(b.color, 0.3));
+    root.setProperty('--orange', b.color);
+    root.setProperty('--brown', b.color2);
+    root.setProperty('--choco', shade(b.color2, -0.45));
+    const meta = document.querySelector('meta[name=theme-color]'); if (meta) meta.content = b.color;
+    if (b.logo) { $('#brandLogo').src = b.logo; $('#brandLogo').alt = b.name; $('#brandLogo').hidden = false; $('#favicon').href = b.logo; }
+    else { $('#brandName').textContent = b.name; $('#brandName').hidden = false; }
+    $('#brandTagline').textContent = b.tagline || '';
+    $('#footAddress').textContent = [b.name, b.address].filter(Boolean).join(' · ');
+    $('#footLine').textContent = b.footer || '';
+    $('#areas').innerHTML = (b.areas || []).map(a => `<option>${esc(a)}</option>`).join('');
+    if (b.areas && b.areas[0]) $('[name=area]').placeholder = b.areas[0];
+    if (b.maps_url) { $('#mapsLink').href = b.maps_url; $('#mapsLink').hidden = false; }
+    if (b.website) { $('#siteLink').href = b.website; $('#siteLink').hidden = false; }
+    bind('shopName', b.name);
+    bind('terms', b.terms || '');
+  }
+
   async function load() {
-    fetch('/api/brand').then(r => r.json()).then(b => bind('terms', b.terms)).catch(() => {});
     let data;
     try {
       const r = await fetch('/api/c/' + encodeURIComponent(code), { headers: { 'x-claim-token': store.get(tokenKey) || '' } });
@@ -34,6 +66,7 @@
     } catch {
       return status('📶', 'No connection', 'Please check your internet and scan again.');
     }
+    applyBrand(data.brand);
     if (data.campaign) {
       document.body.className = 'theme-' + data.campaign.theme;
       bind('headline', data.campaign.headline);
@@ -42,7 +75,8 @@
     bind('code', fmtCode(data.code));
 
     switch (data.state) {
-      case 'invalid': return status('🔍', 'Coupon not found', 'This QR code is not a valid Navya coupon. Please check and scan again.');
+      case 'invalid': return status('🔍', 'Coupon not found', 'This QR code is not a valid coupon. Please check and scan again.');
+      case 'paused': return status('⏸️', 'This offer is paused', `${brand.name}'s Scratch & Win is taking a short break. Please keep your coupon and try again later.`);
       case 'void': return status('🚫', 'Coupon cancelled', 'This coupon is no longer active. Please ask our staff for a new one.');
       case 'expired': return status('⏰', 'This coupon has expired', `The offer ended on ${fmtDate(data.campaign.expires_on)}. Watch out for our next sweet surprise!`);
       case 'mine': return showReward(data.reward, false);
@@ -98,9 +132,9 @@
     bind('commaName', first ? ', ' + first : '');
     const isWin = rw.gift.kind === 'prize';
 
-    const imgBox = $('.reveal-img');
-    if (rw.gift.image) { $('#giftImg').src = rw.gift.image; imgBox.classList.remove('emoji'); }
-    else { imgBox.innerHTML = isWin ? '🎁' : '🧁'; imgBox.classList.add('emoji'); }
+    const imgBox = $('.reveal-img'), img = rw.gift.image || '';
+    if (img && !img.startsWith('emoji:')) { $('#giftImg').src = img; imgBox.classList.remove('emoji'); }
+    else { imgBox.innerHTML = `<span class="emoji-pic">${esc(img ? img.slice(6) : isWin ? '🎁' : '🧁')}</span>`; imgBox.classList.add('emoji'); }
     $('#revealLabel').textContent = isWin ? (rw.gift.bumper ? '★ Bumper prize ★' : 'You won') : 'Oh no!';
     $('#giftName').textContent = rw.gift.name;
 
@@ -113,13 +147,13 @@
       $('#resValid').textContent = rw.status === 'redeemed'
         ? `✔ Redeemed on ${fmtDate(rw.redeemed_at)}`
         : rw.reward_expires ? `Valid till ${fmtDate(rw.reward_expires)}` : '';
-      $('#resQr').src = '/qr.svg?d=' + encodeURIComponent('NAVYA-REWARD:' + rw.reward_code);
+      $('#resQr').src = '/qr.svg?d=' + encodeURIComponent('REWARD:' + rw.reward_code);
     } else {
-      $('#loseDesc').textContent = rw.gift.description || 'Thank you for choosing Navya. Keep collecting coupons for more sweet surprises!';
+      $('#loseDesc').textContent = rw.gift.description || `Thank you for choosing ${brand.name}. Keep collecting coupons for more sweet surprises!`;
     }
     const msg = isWin
-      ? `I just won *${rw.gift.name}* from Navya Bakers' Scratch & Win! 🎉🍰 Pick up a coupon at Navya Bake Shop and try your luck too.`
-      : `I just played Navya Bakers' Scratch & Win! 🍰 Pick up a coupon at Navya Bake Shop and try your luck.`;
+      ? `I just won *${rw.gift.name}* in ${brand.name}'s Scratch & Win! 🎉🍰 Pick up a coupon at ${brand.name} and try your luck too.`
+      : `I just played ${brand.name}'s Scratch & Win! 🍰 Pick up a coupon at ${brand.name} and try your luck.`;
     $('#waShare').href = 'https://wa.me/?text=' + encodeURIComponent(msg);
 
     show('s-scratch');
@@ -138,7 +172,7 @@
       $('#scratchCard').classList.add('won');
       if (navigator.vibrate) navigator.vibrate(isWin ? [60, 40, 120] : 40);
       if (isWin && window.confetti) {
-        const colors = ['#F47216', '#F6C24A', '#963B1F', '#FFFFFF', '#E9567B'];
+        const colors = [brand.color || '#F47216', '#F6C24A', brand.color2 || '#963B1F', '#FFFFFF', '#E9567B'];
         confetti({ particleCount: 140, spread: 80, origin: { y: .45 }, colors });
         setTimeout(() => confetti({ particleCount: 70, angle: 60, spread: 60, origin: { x: 0, y: .7 }, colors }), 250);
         setTimeout(() => confetti({ particleCount: 70, angle: 120, spread: 60, origin: { x: 1, y: .7 }, colors }), 400);
@@ -156,19 +190,22 @@
     canvas.width = W * dpr; canvas.height = H * dpr;
     ctx.scale(dpr, dpr);
 
-    // Golden-orange foil
+    // Gold foil blending into the bakery's brand colour
+    const c = brand.color || '#F47216';
     const g = ctx.createLinearGradient(0, 0, W, H);
-    g.addColorStop(0, '#FFC768'); g.addColorStop(.35, '#F6A23A'); g.addColorStop(.6, '#F47216'); g.addColorStop(1, '#D9560B');
+    g.addColorStop(0, '#FFC768'); g.addColorStop(.35, shade(c, 0.35)); g.addColorStop(.6, c); g.addColorStop(1, shade(c, -0.15));
     ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
     // diagonal sheen
     const sh = ctx.createLinearGradient(0, H, W, 0);
     sh.addColorStop(.3, 'rgba(255,255,255,0)'); sh.addColorStop(.5, 'rgba(255,255,255,.35)'); sh.addColorStop(.7, 'rgba(255,255,255,0)');
     ctx.fillStyle = sh; ctx.fillRect(0, 0, W, H);
-    // repeating NAVYA watermark
+    // repeating bakery-name watermark
+    const mark = String(brand.name || 'Scratch').split(' ')[0].toUpperCase().slice(0, 12);
     ctx.save();
     ctx.translate(W / 2, H / 2); ctx.rotate(-Math.PI / 7);
     ctx.font = '800 15px "Albert Sans", sans-serif'; ctx.fillStyle = 'rgba(255,255,255,.16)'; ctx.textAlign = 'center';
-    for (let y = -H; y < H; y += 30) for (let x = -W; x < W; x += 90) ctx.fillText('NAVYA', x + (y / 30 % 2 ? 45 : 0), y);
+    const gap = Math.max(90, ctx.measureText(mark).width + 30);
+    for (let y = -H; y < H; y += 30) for (let x = -W; x < W; x += gap) ctx.fillText(mark, x + (y / 30 % 2 ? gap / 2 : 0), y);
     ctx.restore();
     // sparkles
     ctx.fillStyle = 'rgba(255,255,255,.8)';

@@ -43,7 +43,7 @@ body {
 
 .app { position: relative; z-index: 1; max-width: 460px; margin: 0 auto; padding: calc(18px + env(safe-area-inset-top)) max(18px, env(safe-area-inset-right))  calc(28px + env(safe-area-inset-bottom)); min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; }
 .top { text-align: center; padding: 6px 0 4px; }
-.logo { height: 58px; filter: drop-shadow(0 6px 14px rgba(244, 114, 22, .25)); }
+.logo { height: 58px; max-width: 220px; object-fit: contain; filter: drop-shadow(0 6px 14px rgba(244, 114, 22, .25)); }
 .tag { font-family: 'Fraunces', serif; font-style: italic; color: var(--brown); font-size: 15px; margin-top: 2px; letter-spacing: .2px; }
 
 .screen { display: none; animation: rise .5s cubic-bezier(.2, .8, .2, 1); }
@@ -185,3 +185,7 @@ body {
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+
+/* ---------- bakery branding ---------- */
+.brand-name { font-family: 'Fraunces', serif; font-weight: 800; font-size: 26px; color: var(--choco); }
+.reveal-img .emoji-pic { font-size: 74px; line-height: 1; }

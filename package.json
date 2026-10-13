@@ -1,7 +1,7 @@
 {
-  "name": "navya-scratch-coupons",
-  "version": "2.0.0",
-  "description": "Navya Bakers — Scan & Scratch QR coupon system (admin + customer scratch experience)",
+  "name": "scratch-and-win",
+  "version": "3.0.0",
+  "description": "Scratch & Win — multi-bakery QR scratch-coupon platform (super admin, bakery admin, customer scratch page)",
   "main": "server.js",
   "private": true,
   "engines": {
@@ -11,7 +11,7 @@
     "start": "node --env-file-if-exists=.env.local --no-warnings server.js",
     "dev": "node --env-file-if-exists=.env.local --no-warnings --watch server.js",
     "db:setup": "node --env-file-if-exists=.env.local --no-warnings scripts/db-setup.js",
-    "db:import-sqlite": "node --env-file-if-exists=.env.local --no-warnings scripts/import-sqlite.js"
+    "super:password": "node --env-file-if-exists=.env.local --no-warnings scripts/set-super-password.js"
   },
   "dependencies": {
     "express": "^4.22.3",
