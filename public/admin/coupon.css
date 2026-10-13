@@ -1,0 +1,66 @@
+/* Printable Navya scratch coupon — 95mm x 64mm */
+.coupon, .coupon * { box-sizing: border-box; }
+.coupon {
+  --c1: #FF9F45; --c2: #F47216; --c3: #C24508;
+  --head: #FFFFFF; --sub: #FFF1E2; --gold: #FFD36B; --stub: #FFF8F0; --stub-ink: #5A2410;
+  position: relative; width: 95mm; height: 64mm; display: flex; overflow: hidden;
+  border-radius: 4mm; font-family: 'Albert Sans', system-ui, sans-serif; color: var(--head);
+  -webkit-print-color-adjust: exact; print-color-adjust: exact; break-inside: avoid;
+  box-shadow: 0 0 0 .2mm rgba(0,0,0,.06);
+}
+.coupon.theme-chocolate { --c1: #6B2E14; --c2: #4A1F0D; --c3: #2A1007; --head: #FFE7B3; --sub: #F3D9C2; --gold: #F6C24A; --stub: #FFF6EA; --stub-ink: #4A1F0D; }
+.coupon.theme-festive  { --c1: #D21F3C; --c2: #A00F2B; --c3: #6E0619; --head: #FFFFFF; --sub: #FFE3E3; --gold: #FFD36B; --stub: #FFF8EE; --stub-ink: #7A0C22; }
+
+.cp-main {
+  position: relative; flex: 0 0 59mm; padding: 4.2mm 4mm 3.6mm; display: flex; flex-direction: column;
+  background:
+    radial-gradient(circle at 92% 108%, rgba(255,255,255,.18) 0 13mm, transparent 13.2mm),
+    radial-gradient(circle at 105% -10%, rgba(255,255,255,.12) 0 18mm, transparent 18.2mm),
+    linear-gradient(140deg, var(--c1), var(--c2) 55%, var(--c3));
+}
+/* confetti sprinkles */
+.cp-main::before {
+  content: ''; position: absolute; inset: 0; pointer-events: none; opacity: .9;
+  background:
+    radial-gradient(circle, var(--gold) 0 .45mm, transparent .55mm) 40mm 6mm / 100% 100% no-repeat,
+    radial-gradient(circle, rgba(255,255,255,.85) 0 .35mm, transparent .45mm) 52mm 15mm / 100% 100% no-repeat,
+    radial-gradient(circle, var(--gold) 0 .35mm, transparent .45mm) 31mm 30mm / 100% 100% no-repeat,
+    radial-gradient(circle, rgba(255,255,255,.7) 0 .3mm, transparent .4mm) 57mm 36mm / 100% 100% no-repeat;
+}
+.cp-top { display: flex; align-items: center; position: relative; }
+.cp-logo { background: #fff; border-radius: 99px; padding: .9mm 2.6mm; display: flex; align-items: center; box-shadow: 0 .6mm 1.6mm rgba(0,0,0,.18); }
+.cp-logo img { height: 6.6mm; display: block; }
+.cp-tag { font-family: 'Fraunces', serif; font-style: italic; font-size: 2.6mm; color: var(--sub); opacity: .95; }
+
+.cp-head { position: relative; margin-top: 3.2mm; }
+.cp-kicker { font-size: 2.3mm; letter-spacing: .6mm; text-transform: uppercase; font-weight: 800; color: var(--gold); }
+.cp-title { font-family: 'Fraunces', serif; font-weight: 800; font-size: 9mm; line-height: .95; letter-spacing: -.15mm; margin: .6mm 0 1mm; text-shadow: 0 .5mm 0 rgba(0,0,0,.12); }
+.cp-sub { font-size: 2.85mm; color: var(--sub); line-height: 1.25; max-width: 40mm; }
+
+.cp-steps { position: relative; display: flex; gap: 1.2mm; margin-top: auto; }
+.cp-steps span { display: flex; align-items: center; gap: .9mm; font-size: 2.35mm; font-weight: 700; padding: .8mm 1.8mm .8mm .9mm; border-radius: 99px; background: rgba(255,255,255,.18); border: .2mm solid rgba(255,255,255,.35); }
+.cp-steps b { display: grid; place-items: center; width: 3.4mm; height: 3.4mm; border-radius: 50%; background: var(--gold); color: var(--stub-ink); font-size: 2mm; }
+.cp-foot { position: relative; margin-top: 2mm; font-size: 2.05mm; color: var(--sub); opacity: .92; display: flex; justify-content: space-between; align-items: baseline; white-space: nowrap; }
+.cp-foot .cp-tag { font-size: 2.5mm; }
+
+.cp-treat { position: absolute; right: -5mm; top: -5mm; width: 23mm; height: 23mm; border-radius: 50%; overflow: hidden; border: 1.1mm solid rgba(255,255,255,.85); box-shadow: 0 1mm 3mm rgba(0,0,0,.25); }
+.cp-treat img { width: 100%; height: 100%; object-fit: cover; }
+
+/* perforated stub */
+.cp-stub {
+  position: relative; flex: 1; background: var(--stub); color: var(--stub-ink);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 2.5mm 2mm;
+  background-image: radial-gradient(circle at 0 50%, transparent 0, transparent 0);
+}
+.cp-stub::before { /* perforation line */
+  content: ''; position: absolute; left: 0; top: 4mm; bottom: 4mm; border-left: .45mm dashed rgba(90,36,16,.35);
+}
+.cp-notch { position: absolute; left: -2.6mm; width: 5.2mm; height: 5.2mm; border-radius: 50%; background: #fff; }
+.cp-notch.t { top: -2.6mm; } .cp-notch.b { bottom: -2.6mm; }
+.cp-scan { font-size: 2.3mm; font-weight: 900; letter-spacing: .5mm; text-transform: uppercase; color: var(--c2); }
+.coupon.theme-chocolate .cp-scan { color: #8A3B17; }
+.cp-qr { width: 25mm; height: 25mm; margin: 1.3mm 0; padding: 1.2mm; background: #fff; border-radius: 2mm; border: .35mm solid rgba(90,36,16,.15); }
+.cp-qr img { width: 100%; height: 100%; display: block; }
+.cp-code { font-size: 3.3mm; font-weight: 900; letter-spacing: .25mm; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.cp-serial { font-size: 1.9mm; opacity: .65; margin-top: .3mm; letter-spacing: .2mm; }
+.cp-hand { font-size: 1.95mm; line-height: 1.2; margin-top: 1.2mm; font-weight: 600; opacity: .8; }

@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light only">
+<meta name="format-detection" content="telephone=no">
+<meta name="theme-color" content="#F47216">
+<title>Navya Bakers · Scratch & Win</title>
+<link rel="icon" href="/img/navya-logo.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Albert+Sans:wght@400;500;600;700;800;900&family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,800;1,9..144,500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/c/customer.css">
+</head>
+<body class="theme-orange">
+<div class="bg-deco" aria-hidden="true">
+  <span class="sprinkle s1"></span><span class="sprinkle s2"></span><span class="sprinkle s3"></span>
+  <span class="sprinkle s4"></span><span class="sprinkle s5"></span><span class="sprinkle s6"></span>
+  <span class="glow g1"></span><span class="glow g2"></span>
+</div>
+
+<main class="app">
+  <header class="top">
+    <img src="/img/navya-logo.svg" alt="Navya Bake Shop" class="logo">
+    <div class="tag">The Tempting Taste</div>
+  </header>
+
+  <!-- Loading -->
+  <section class="screen active" id="s-loading">
+    <div class="loader"><span></span><span></span><span></span></div>
+  </section>
+
+  <!-- Welcome + details -->
+  <section class="screen" id="s-form">
+    <div class="hero">
+      <div class="giftbox" aria-hidden="true">
+        <div class="gb-lid"><span class="gb-bow l"></span><span class="gb-bow r"></span></div>
+        <div class="gb-body"><span class="gb-ribbon"></span></div>
+        <span class="spark k1">✦</span><span class="spark k2">✦</span><span class="spark k3">✧</span>
+      </div>
+      <h1 class="headline" data-bind="headline">Scratch &amp; Win</h1>
+      <p class="subline" data-bind="subline">A sweet surprise is waiting for you!</p>
+      <div class="chip">Coupon <b data-bind="code">····-····</b></div>
+    </div>
+
+    <form class="card form" id="claimForm" novalidate>
+      <h2>Tell us a little about you</h2>
+      <p class="muted">So we know who to hand your gift to at the counter.</p>
+      <label class="field">
+        <span>Your name</span>
+        <input name="name" autocomplete="name" placeholder="e.g. Anjali Menon" required maxlength="60">
+      </label>
+      <label class="field">
+        <span>Mobile number</span>
+        <div class="phone"><em>+91</em><input name="phone" inputmode="numeric" autocomplete="tel-national" placeholder="98470 12345" maxlength="11" required></div>
+      </label>
+      <div class="row2">
+        <label class="field">
+          <span>Area / locality</span>
+          <input name="area" list="areas" placeholder="Angamaly" maxlength="60">
+          <datalist id="areas"><option>Angamaly</option><option>Kalady</option><option>Aluva</option><option>Perumbavoor</option><option>Chalakudy</option><option>Kochi</option><option>Thrissur</option></datalist>
+        </label>
+        <label class="field">
+          <span>Birthday <i>(optional)</i></span>
+          <input name="dob" type="date">
+        </label>
+      </div>
+      <label class="check">
+        <input type="checkbox" name="consent" checked>
+        <span>Send me birthday treats &amp; offers on WhatsApp</span>
+      </label>
+      <p class="err" id="formErr" role="alert"></p>
+      <button class="cta" type="submit"><span>Unlock my scratch card</span><i class="shine"></i></button>
+      <p class="fine" data-bind="terms"></p>
+    </form>
+  </section>
+
+  <!-- Scratch -->
+  <section class="screen" id="s-scratch">
+    <div class="hello">
+      <h2>Hi <span data-bind="firstName">there</span>! 👋</h2>
+      <p class="muted" id="scratchHint">Scratch the golden card to reveal your gift</p>
+    </div>
+
+    <div class="scratch-wrap">
+      <div class="scratch-card" id="scratchCard">
+        <div class="reveal" id="reveal">
+          <div class="reveal-img"><img id="giftImg" alt=""></div>
+          <div class="reveal-label" id="revealLabel">You won</div>
+          <div class="reveal-name" id="giftName"></div>
+        </div>
+        <canvas id="foil" aria-label="Scratch area"></canvas>
+        <div class="finger" id="finger" aria-hidden="true">👆</div>
+      </div>
+      <button class="link" id="revealAll" hidden>Tap to reveal</button>
+    </div>
+
+    <div class="result card" id="result" hidden>
+      <div class="win" id="winBlock">
+        <div class="eyebrow">Congratulations<span data-bind="commaName"></span>!</div>
+        <h3 id="resGift"></h3>
+        <p class="muted" id="resDesc"></p>
+        <div class="ticket">
+          <div class="t-left">
+            <span>Reward code</span>
+            <b id="resCode"></b>
+            <small id="resValid"></small>
+          </div>
+          <div class="t-right"><img id="resQr" alt="Reward QR code"></div>
+        </div>
+        <ol class="steps">
+          <li><b>Visit</b> any Navya Bake Shop</li>
+          <li><b>Show</b> this screen at the counter</li>
+          <li><b>Enjoy</b> your treat!</li>
+        </ol>
+      </div>
+      <div class="lose" id="loseBlock" hidden>
+        <div class="lose-ico">🧁</div>
+        <h3>Better luck next time!</h3>
+        <p class="muted" id="loseDesc"></p>
+      </div>
+      <div class="actions">
+        <a class="btn wa" id="waShare" target="_blank" rel="noopener">
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2Zm5.3 14.1c-.2.6-1.3 1.2-1.8 1.2-.5.1-1 .2-3.4-.7-2.8-1.1-4.6-4-4.8-4.2-.1-.2-1.1-1.5-1.1-2.9s.7-2.1 1-2.4c.3-.3.6-.3.8-.3h.6c.2 0 .4 0 .6.5l.8 2c.1.2.1.4 0 .5l-.3.5-.4.4c-.1.1-.3.3-.1.6.2.3.8 1.3 1.7 2.1 1.2 1 2.1 1.4 2.4 1.5.3.1.5.1.6-.1l.9-1c.2-.3.4-.2.6-.1l1.9.9c.3.1.5.2.5.3.1.2.1.7-.1 1.2Z"/></svg>
+          Share with friends
+        </a>
+        <a class="btn ghost" href="https://maps.google.com/?q=Navya+Bakers+Central+Junction+Angamaly" target="_blank" rel="noopener">📍 Find our shop</a>
+      </div>
+      <p class="fine">Tip: take a screenshot of this page. You can also reopen this coupon on this phone anytime.</p>
+    </div>
+  </section>
+
+  <!-- Status screens: claimed / invalid / expired -->
+  <section class="screen" id="s-status">
+    <div class="card status">
+      <div class="status-ico" id="stIco">🎁</div>
+      <h2 id="stTitle"></h2>
+      <p class="muted" id="stText"></p>
+      <div class="claimed-by" id="stWho" hidden></div>
+      <a class="btn ghost" href="https://navyabakers.com" target="_blank" rel="noopener">Explore Navya Bakers</a>
+    </div>
+  </section>
+
+  <footer class="foot">
+    <span>Navya Bake Shop · Central Junction, Angamaly</span>
+    <span class="since">Since 1984 · 100% natural colours &amp; flavours</span>
+  </footer>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js"></script>
+<script src="/c/customer.js"></script>
+</body>
+</html>
