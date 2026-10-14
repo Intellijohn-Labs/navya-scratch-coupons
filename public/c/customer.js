@@ -37,7 +37,7 @@
   function applyBrand(b) {
     if (!b) return;
     brand = b;
-    document.title = `${b.name} · Scratch & Win`;
+    document.title = `${b.name} · Genuine Draw`;
     const root = document.documentElement.style;   // body theme classes still override for the other designs
     root.setProperty('--accent', b.color);
     root.setProperty('--accent-2', shade(b.color, 0.3));
@@ -190,7 +190,7 @@
     canvas.width = W * dpr; canvas.height = H * dpr;
     ctx.scale(dpr, dpr);
 
-    // Gold foil blending into the bakery's brand colour
+    // Gold foil blending into the merchant's brand colour
     const c = brand.color || '#F47216';
     const g = ctx.createLinearGradient(0, 0, W, H);
     g.addColorStop(0, '#FFC768'); g.addColorStop(.35, shade(c, 0.35)); g.addColorStop(.6, c); g.addColorStop(1, shade(c, -0.15));
@@ -199,7 +199,7 @@
     const sh = ctx.createLinearGradient(0, H, W, 0);
     sh.addColorStop(.3, 'rgba(255,255,255,0)'); sh.addColorStop(.5, 'rgba(255,255,255,.35)'); sh.addColorStop(.7, 'rgba(255,255,255,0)');
     ctx.fillStyle = sh; ctx.fillRect(0, 0, W, H);
-    // repeating bakery-name watermark
+    // repeating merchant-name watermark
     const mark = String(brand.name || 'Scratch').split(' ')[0].toUpperCase().slice(0, 12);
     ctx.save();
     ctx.translate(W / 2, H / 2); ctx.rotate(-Math.PI / 7);

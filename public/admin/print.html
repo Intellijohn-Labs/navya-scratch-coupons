@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Print coupons · Scratch & Win</title>
+<title>Print coupons · Genuine Draw</title>
 <link rel="icon" href="/img/platform-icon.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -89,7 +89,7 @@
   document.title = `Print coupons · ${brand.name}`;
   document.getElementById('title').textContent = `${batch.name} — ${batch.count} coupons`;
   document.getElementById('baseUrl').textContent = public_url;
-  // Each coupon shows one of the bakery's own gift pictures, in rotation.
+  // Each coupon shows one of the merchant's own gift pictures, in rotation.
   const treats = giftTreats.length ? giftTreats : ['emoji:🎁'];
   const qs = new URLSearchParams(location.search);
   if (qs.get('theme')) document.getElementById('theme').value = qs.get('theme');

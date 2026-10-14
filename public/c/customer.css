@@ -189,3 +189,8 @@ body {
 /* ---------- bakery branding ---------- */
 .brand-name { font-family: 'Fraunces', serif; font-weight: 800; font-size: 26px; color: var(--choco); }
 .reveal-img .emoji-pic { font-size: 74px; line-height: 1; }
+
+/* ---------- Genuine Draw trust seal ---------- */
+.seal { display: block; width: fit-content; max-width: 100%; margin: 10px auto 0; padding: 7px 14px; border-radius: 14px; background: #14213D; color: #E8EDF7; font-size: 11.5px; line-height: 1.5; text-align: center; text-decoration: none; }
+.seal img { width: 16px; height: 16px; border-radius: 4px; vertical-align: -3px; margin-right: 5px; }
+.seal b { color: #F7CF6B; }

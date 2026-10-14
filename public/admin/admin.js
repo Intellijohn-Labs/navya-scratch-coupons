@@ -14,7 +14,7 @@
   };
   const initials = n => (n || '?').split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase();
   const fmtPhone = p => p ? p.slice(0, 5) + ' ' + p.slice(5) : '';
-  // Neutral icon presets for every bakery; Navya also keeps the product photos taken from its own website.
+  // Neutral icon presets for every merchant; Navya also keeps the product photos taken from its own website.
   const EMOJI_PRESETS = ['🎂', '🍰', '🧁', '🍪', '🍩', '🥐', '🍞', '🍮', '🥧', '🍫', '☕', '🎟️'].map(e => 'emoji:' + e);
   const PHOTO_PRESETS = ['/img/cake.webp', '/img/cookies.webp', '/img/desserts.webp', '/img/bread.webp', '/img/savouries.webp', '/img/snacks.webp'];
   let ME = { tenant: { name: '', color: '#F47216', color2: '#963B1F' } };
@@ -56,13 +56,28 @@
     ME = await (await fetch('/api/admin/me')).json();
     if (!ME.admin) return showLogin();
     applyBrand(ME.tenant);
+    applyRole();
     const ban = $('#impBanner');
     ban.hidden = !ME.impersonated;
     ban.innerHTML = ME.impersonated ? `<span>👀 You are viewing <b>${esc(ME.tenant.name)}</b> as the Super Admin.</span><a href="/super">← Back to Super Admin</a>` : '';
     $('#login').classList.add('hidden'); $('#shell').classList.remove('hidden'); route();
   }
+  // Which pages each login can open (the server enforces the same rules).
+  const ROLE_PAGES = {
+    owner: ['dashboard', 'gifts', 'coupons', 'batch', 'customers', 'redeem', 'outlets', 'team', 'activity', 'settings'],
+    manager: ['dashboard', 'gifts', 'coupons', 'batch', 'customers', 'redeem', 'outlets'],
+    counter: ['redeem'],
+  };
+  const ROLE_LABEL = { owner: 'Owner', manager: 'Manager', counter: 'Counter staff' };
+  const canSee = page => (ROLE_PAGES[ME.role] || []).includes(page);
+  function applyRole() {
+    document.querySelectorAll('#nav a').forEach(a => { a.hidden = !canSee(a.dataset.r); });
+    $('#sideRole').textContent = ME.impersonated ? 'Viewing as Super Admin'
+      : `${ME.user.name} · ${ROLE_LABEL[ME.role]}${ME.user.outlet ? ' · ' + ME.user.outlet.name : ''}`;
+    $('#myPw').hidden = !!ME.impersonated;
+  }
   function applyBrand(t) {
-    document.title = `${t.name} · Scratch & Win`;
+    document.title = `${t.name} · Genuine Draw`;
     $('#sideTitle').textContent = t.name;
     $('#sideName').textContent = [t.name, t.address].filter(Boolean).join(' · ');
     if (t.logo) { $('#sideLogo').src = t.logo; $('#sideLogo').hidden = false; $('#sideInitial').textContent = ''; }
@@ -76,6 +91,19 @@
     if (r.ok) { e.target.reset(); showShell(); }
     else $('#loginErr').textContent = (await r.json().catch(() => ({}))).error || 'Could not sign in';
   });
+  $('#myPw').onclick = () => {
+    const m = modal(`<h2>Change my password</h2>
+      <p class="hint" style="margin:0">Signed in as <b>${esc(ME.user.username || ME.user.name)}</b>. Other devices will be signed out.</p>
+      <input class="input" type="password" id="pwOld" placeholder="Current password" autocomplete="current-password" style="margin-top:16px">
+      <input class="input" type="password" id="pwNew" placeholder="New password (min 8 characters)" autocomplete="new-password" style="margin-top:10px">
+      <p class="err" id="pwErr" style="color:var(--red);font-weight:600;min-height:18px;margin:10px 0 0"></p>
+      <div class="modal-foot"><button class="btn" id="pwCancel">Cancel</button><button class="btn primary" id="pwSave">Change password</button></div>`);
+    $('#pwCancel', m.el).onclick = m.close;
+    $('#pwSave', m.el).onclick = async () => {
+      try { await api('/password', { method: 'PUT', body: { current: $('#pwOld', m.el).value, password: $('#pwNew', m.el).value } }); m.close(); toast('Password changed'); }
+      catch (e) { $('#pwErr', m.el).textContent = e.message; }
+    };
+  };
   $('#logout').onclick = async () => {
     await fetch('/api/admin/logout', { method: 'POST' });
     if (ME.impersonated) location.href = '/super'; else showLogin();
@@ -85,11 +113,13 @@
   let scanner = null;
   async function route() {
     if (scanner) { try { await scanner.stop(); } catch {} scanner = null; }
-    const [name, arg] = (location.hash.slice(1) || 'dashboard').split('/');
+    if (!ME.role) return;                // not signed in yet
+    let [name, arg] = (location.hash.slice(1) || '').split('/');
+    if (!canSee(name)) name = ROLE_PAGES[ME.role][0];
     document.querySelectorAll('#nav a').forEach(a => a.classList.toggle('on', a.dataset.r === (name === 'batch' ? 'coupons' : name)));
-    const pages = { dashboard, gifts, coupons, batch, customers, redeem, settings };
+    const pages = { dashboard, gifts, coupons, batch, customers, redeem, outlets, team, activity, settings };
     view.innerHTML = '<div class="empty-state">Loading…</div>';
-    try { await (pages[name] || dashboard)(arg); } catch (e) { if (e.message !== 'Please log in') view.innerHTML = `<div class="empty-state"><span>⚠️</span>${esc(e.message)}</div>`; }
+    try { await pages[name](arg); } catch (e) { if (e.message !== 'Please log in') view.innerHTML = `<div class="empty-state"><span>⚠️</span>${esc(e.message)}</div>`; }
     window.scrollTo(0, 0);
   }
   window.addEventListener('hashchange', route);
@@ -115,7 +145,7 @@
 
     view.innerHTML = `
       <div class="page-head">
-        <div><h1>Good ${hour < 12 ? 'morning' : hour < 17 ? 'afternoon' : 'evening'} 👋</h1><p>Here's how your Scratch &amp; Win campaign is doing.</p></div>
+        <div><h1>Good ${hour < 12 ? 'morning' : hour < 17 ? 'afternoon' : 'evening'} 👋</h1><p>Here's how your campaigns are doing.</p></div>
         <div style="display:flex;gap:10px"><a class="btn" href="#redeem">Redeem a reward</a><a class="btn primary" href="#coupons">+ Print coupons</a></div>
       </div>
       <div class="kpis">
@@ -155,6 +185,17 @@
             ${d.areas.length ? d.areas.map(a => `<div class="area-row"><span>${esc(a.area)}</span><div class="bar-track" style="margin:0"><div class="bar-fill" style="width:${a.n / areaMax * 100}%"></div></div><b>${a.n}</b></div>`).join('') : '<div class="empty-state">No data yet</div>'}
           </div>
         </div>
+      </div>
+      <div class="card" style="margin-top:18px"><h3>Outlets <a href="#outlets" style="font-size:13px">Manage →</a></h3>
+        <div class="table-wrap" style="border:0"><table class="rtable">
+          <thead><tr><th>Outlet</th><th>Coupons handed out</th><th>Scratched</th><th>Gifts redeemed here</th></tr></thead>
+          <tbody>${d.outlets.map(o => `<tr>
+            <td data-label="Outlet"><b>${esc(o.name)}</b>${o.active ? '' : ' <span class="pill off">Closed</span>'}<small>${esc(o.address)}</small></td>
+            <td data-label="Handed out">${o.issued}</td>
+            <td data-label="Scratched">${o.claimed}${o.issued ? ` <small style="display:inline">(${Math.round(o.claimed / o.issued * 100)}%)</small>` : ''}</td>
+            <td data-label="Redeemed here">${o.redeemed}</td></tr>`).join('')}</tbody>
+        </table></div>
+        <p class="hint">"Handed out" counts batches assigned to an outlet. Batches for all outlets aren't included.</p>
       </div>`;
   }
 
@@ -332,7 +373,7 @@
             <div class="batch-prev">${renderCoupon({ code: 'DEMO1234', serial: 1, theme: b.theme, headline: b.headline, subline: b.subline, expires_on: b.expires_on, baseUrl: baseUrlCache, brand: ME.tenant, treat: treatCache })}</div>
             <div>
               <h4>${esc(b.name)} ${b.sample ? '<span class="pill bumper">Demo</span>' : ''}</h4>
-              <div class="meta"><span>${THEMES[b.theme][0]}</span><span>Created ${fmtDate(b.created_at)}</span><span>${b.expires_on ? 'Expires ' + fmtDate(b.expires_on) : 'No expiry'}</span></div>
+              <div class="meta"><span>📍 ${esc(b.outlet_name || 'All outlets')}</span><span>${THEMES[b.theme][0]}</span><span>Created ${fmtDate(b.created_at)}</span><span>${b.expires_on ? 'Expires ' + fmtDate(b.expires_on) : 'No expiry'}</span></div>
               <div class="funnel">
                 <div><b>${b.count}</b>Printed</div><div><b>${b.scanned || 0}</b>Scanned</div>
                 <div><b>${b.claimed || 0}</b>Scratched</div><div><b>${b.redeemed || 0}</b>Redeemed</div>
@@ -354,7 +395,8 @@
     });
   }
 
-  function batchForm() {
+  async function batchForm() {
+    const outlets = (await api('/outlets')).filter(o => o.active);
     const in60 = new Date(Date.now() + 60 * 86400000).toISOString().slice(0, 10);
     const f = { theme: 'orange' };
     const m = modal(`
@@ -368,6 +410,9 @@
             <div><label class="label">How many coupons?</label><input class="input" id="bCount" type="number" min="1" max="1000" value="48"><p class="hint" id="bSheets"></p></div>
             <div><label class="label">Scan before</label><input class="input" id="bExp" type="date" value="${in60}"></div>
           </div>
+          <label class="label">Handed out at</label>
+          <select class="input" id="bOutlet"><option value="">All outlets</option>${outlets.map(o => `<option value="${o.id}">${esc(o.name)}</option>`).join('')}</select>
+          <p class="hint">Pick an outlet to see its numbers separately on the dashboard.</p>
           <label class="label">Headline on coupon</label>
           <input class="input" id="bHead" maxlength="40" value="Scratch &amp; Win">
           <label class="label">Tagline</label>
@@ -408,7 +453,7 @@
     $('#bSave', el).onclick = async () => {
       const btn = $('#bSave', el); btn.disabled = true;
       try {
-        const r = await api('/batches', { method: 'POST', body: { name: $('#bName', el).value, count: $('#bCount', el).value, expires_on: $('#bExp', el).value, headline: $('#bHead', el).value, subline: $('#bSub', el).value, theme: f.theme } });
+        const r = await api('/batches', { method: 'POST', body: { name: $('#bName', el).value, count: $('#bCount', el).value, expires_on: $('#bExp', el).value, headline: $('#bHead', el).value, subline: $('#bSub', el).value, theme: f.theme, outlet_id: $('#bOutlet', el).value } });
         m.close(); toast('Batch created ✨');
         location.href = "/admin/print/" + r.id;
         coupons();
@@ -483,7 +528,7 @@
           <td data-label="Customer"><b>${esc(r.customer_name)}</b><small>${fmtPhone(r.phone)} <a class="wa-link" href="https://wa.me/91${r.phone}?text=${encodeURIComponent(msg)}" target="_blank" title="Message on WhatsApp">${WA_ICON}</a>${r.consent ? '' : ' · no offers'}</small></td>
           <td data-label="Area">${esc(r.area || '—')}</td>
           <td data-label="Birthday">${r.dob ? fmtDate(r.dob).replace(/ \d{4}$/, '') : '—'}</td>
-          <td data-label="Gift won">${r.gift_kind === 'prize' ? '🎁 ' + esc(r.gift_name) : '<span style="color:var(--muted)">Better luck next time</span>'}<small>${esc(r.campaign)}</small></td>
+          <td data-label="Gift won">${r.gift_kind === 'prize' ? '🎁 ' + esc(r.gift_name) : '<span style="color:var(--muted)">Better luck next time</span>'}<small>${esc(r.campaign)}${r.outlet ? ' · ' + esc(r.outlet) : ''}</small></td>
           <td data-label="Reward code" class="mono">${r.reward_code || '—'}${r.reward_expires ? `<small>till ${fmtDate(r.reward_expires)}</small>` : ''}</td>
           <td data-label="Status">${r.gift_kind === 'prize' ? `<span class="pill ${expired ? 'expired' : r.status}">${expired ? 'expired' : r.status === 'claimed' ? 'to redeem' : r.status}</span>` : '<span class="pill lose">—</span>'}</td>
         </tr>`;
@@ -495,10 +540,18 @@
 
   // ---------------------------------------------------------------- redeem
   async function redeem(prefill) {
+    // Counter staff always redeem at their own outlet; owners and managers choose (remembered on this device).
+    const fixed = ME.role === 'counter' && ME.user.outlet;
+    const outlets = fixed ? [] : (await api('/outlets')).filter(o => o.active);
+    let saved = ''; try { saved = localStorage.getItem('gd-outlet-' + ME.tenant.slug) || ''; } catch {}
+    if (!outlets.some(o => String(o.id) === saved)) saved = outlets[0] ? String(outlets[0].id) : '';
     view.innerHTML = `
       <div class="page-head"><div><h1>Redeem at counter</h1><p>Scan the QR on the customer's phone, or type their reward code.</p></div></div>
       <div class="redeem">
         <div class="card">
+          ${fixed ? `<div class="plan-note">📍 Redeeming at <b>${esc(ME.user.outlet.name)}</b></div>`
+            : outlets.length > 1 ? `<label class="label" style="margin-top:0">Redeeming at</label>
+              <select class="input" id="rOutlet" style="margin-bottom:14px">${outlets.map(o => `<option value="${o.id}" ${String(o.id) === saved ? 'selected' : ''}>${esc(o.name)}</option>`).join('')}</select>` : ''}
           <form class="big-input" id="lookForm"><input class="input" id="code" placeholder="NB······" autocomplete="off"><button class="btn primary" style="height:54px">Check</button></form>
           <button class="btn block" id="camBtn" style="margin-top:12px">📷 Scan with camera</button>
           <div id="reader"></div>
@@ -533,20 +586,23 @@
             <dt>Coupon</dt><dd class="mono">${fmtCode(c.code)} <small style="font-weight:400;color:var(--muted)">· ${esc(c.campaign)}</small></dd>
             <dt>Won on</dt><dd>${fmtTime(c.claimed_at)}</dd>
             <dt>Valid till</dt><dd>${fmtDate(c.reward_expires)}</dd>
-            ${c.redeemed_at ? `<dt>Redeemed</dt><dd>${fmtTime(c.redeemed_at)}</dd>` : ''}
+            ${c.redeemed_at ? `<dt>Redeemed</dt><dd>${fmtTime(c.redeemed_at)}${c.redeemed_outlet ? ' · ' + esc(c.redeemed_outlet) : ''}${c.redeemed_by ? `<small style="display:block;font-weight:400;color:var(--muted)">by ${esc(c.redeemed_by)}</small>` : ''}</dd>` : ''}
           </dl>
           ${win && c.status === 'claimed' && !c.expired ? `<button class="btn primary block" id="doRedeem">Hand over gift &amp; mark redeemed</button>` : ''}
         </div>`;
         const btn = $('#doRedeem');
         if (btn) btn.onclick = async () => {
           btn.disabled = true;
-          try { await api('/redeem/' + c.id, { method: 'POST', body: {} }); toast('Redeemed ✓ Enjoy!'); lookup(c.reward_code, true); }
+          const sel = $('#rOutlet');
+          try { await api('/redeem/' + c.id, { method: 'POST', body: { outlet_id: sel ? sel.value : (outlets[0] ? outlets[0].id : '') } }); toast('Redeemed ✓ Enjoy!'); lookup(c.reward_code, true); }
           catch (e) { toast(e.message); btn.disabled = false; }
         };
       } catch (e) {
         out.innerHTML = `<div class="empty-state"><span>🤔</span>${esc(e.message)}</div>`;
       }
     };
+    const sel = $('#rOutlet');
+    if (sel) sel.onchange = () => { try { localStorage.setItem('gd-outlet-' + ME.tenant.slug, sel.value); } catch {} };
     $('#lookForm').onsubmit = e => { e.preventDefault(); const v = $('#code').value.trim(); if (v) lookup(v); };
     $('#camBtn').onclick = async () => {
       if (scanner) { await scanner.stop().catch(() => {}); scanner = null; $('#camBtn').textContent = '📷 Scan with camera'; $('#reader').innerHTML = ''; return; }
@@ -567,6 +623,171 @@
       }
     };
     if (prefill) { $('#code').value = prefill; lookup(prefill); } else $('#code').focus();
+  }
+
+  // ---------------------------------------------------------------- outlets
+  async function outlets() {
+    const list = await api('/outlets');
+    const owner = ME.role === 'owner';
+    view.innerHTML = `
+      <div class="page-head">
+        <div><h1>Outlets</h1><p>Your shops and branches. Coupons and redemptions are counted per outlet.</p></div>
+        ${owner ? '<button class="btn primary" id="addOutlet">+ Add outlet</button>' : ''}
+      </div>
+      <div class="table-wrap"><table class="rtable">
+        <thead><tr><th>Outlet</th><th>Phone</th><th>Coupons handed out</th><th>Scratched</th><th>Redeemed here</th><th></th></tr></thead>
+        <tbody>${list.map(o => `<tr>
+          <td data-label="Outlet"><b>${esc(o.name)}</b> ${o.active ? '' : '<span class="pill off">Closed</span>'}<small>${esc(o.address || '—')}</small></td>
+          <td data-label="Phone">${esc(o.phone || '—')}</td>
+          <td data-label="Handed out">${o.issued}</td>
+          <td data-label="Scratched">${o.claimed}</td>
+          <td data-label="Redeemed here">${o.redeemed}</td>
+          <td data-label="" class="td-actions">${owner ? `<button class="btn sm" data-edit="${o.id}">Edit</button>` : ''}</td>
+        </tr>`).join('')}</tbody>
+      </table></div>`;
+    if (!owner) return;
+    $('#addOutlet').onclick = () => outletForm(null);
+    view.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => outletForm(list.find(o => o.id === +b.dataset.edit)));
+  }
+  function outletForm(o) {
+    const f = o || { name: '', address: '', phone: '', maps_url: '', active: 1 };
+    const m = modal(`<h2>${o ? 'Edit outlet' : 'Add an outlet'}</h2>
+      <label class="label">Name</label><input class="input" id="oName" maxlength="80" value="${esc(f.name)}" placeholder="e.g. Kakkanad branch">
+      <label class="label">Address</label><input class="input" id="oAddr" maxlength="200" value="${esc(f.address)}">
+      <div class="grid2">
+        <div><label class="label">Phone</label><input class="input" id="oPhone" value="${esc(f.phone)}" inputmode="tel"></div>
+        <div><label class="label">Google Maps link <i>(optional)</i></label><input class="input" id="oMaps" value="${esc(f.maps_url)}"></div>
+      </div>
+      ${o ? `<label class="switch"><input type="checkbox" id="oActive" ${f.active ? 'checked' : ''}> Open (untick if this outlet has closed)</label>` : ''}
+      <p class="err" id="oErr" style="color:var(--red);font-weight:600;min-height:18px;margin:12px 0 0"></p>
+      <div class="modal-foot"><button class="btn" id="oCancel">Cancel</button><button class="btn primary" id="oSave">${o ? 'Save' : 'Add outlet'}</button></div>`);
+    const el = m.el;
+    $('#oCancel', el).onclick = m.close;
+    $('#oSave', el).onclick = async () => {
+      const body = { name: $('#oName', el).value, address: $('#oAddr', el).value, phone: $('#oPhone', el).value, maps_url: $('#oMaps', el).value, active: o ? $('#oActive', el).checked : true };
+      try { await api(o ? '/outlets/' + o.id : '/outlets', { method: o ? 'PUT' : 'POST', body }); m.close(); toast(o ? 'Outlet saved' : 'Outlet added'); outlets(); }
+      catch (e) { $('#oErr', el).textContent = e.message; }
+    };
+    setTimeout(() => $('#oName', el).focus(), 50);
+  }
+
+  // ---------------------------------------------------------------- team (staff logins)
+  const genPassword = () => {
+    const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+    const a = new Uint32Array(12); crypto.getRandomValues(a);
+    return Array.from(a, n => chars[n % chars.length]).join('');
+  };
+  async function team() {
+    const [list, outs] = await Promise.all([api('/staff'), api('/outlets')]);
+    view.innerHTML = `
+      <div class="page-head">
+        <div><h1>Team</h1><p>Logins for your staff. You (the owner) sign in with <b>${esc(ME.tenant.slug)}</b>.</p></div>
+        <button class="btn primary" id="addStaff">+ Add staff login</button>
+      </div>
+      <div class="card" style="margin-bottom:14px"><p class="hint" style="margin:0">
+        <span class="role-pill manager">Manager</span> can run gifts, coupons, customers and redemption, but not settings, team or the activity log.
+        &nbsp; <span class="role-pill counter">Counter</span> can only check and redeem rewards, at one outlet.</p></div>
+      <div class="table-wrap"><table class="rtable">
+        <thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Outlet</th><th>Last sign-in</th><th></th></tr></thead>
+        <tbody>${list.map(s => `<tr>
+          <td data-label="Name"><b>${esc(s.name)}</b> ${s.active ? '' : '<span class="pill off">Switched off</span>'}</td>
+          <td data-label="Username" class="mono">${esc(s.username)}</td>
+          <td data-label="Role"><span class="role-pill ${s.role}">${s.role === 'manager' ? 'Manager' : 'Counter'}</span></td>
+          <td data-label="Outlet">${esc(s.outlet_name || 'All outlets')}</td>
+          <td data-label="Last sign-in">${s.last_login_at ? fmtTime(s.last_login_at) : 'Never'}</td>
+          <td data-label="" class="td-actions">
+            <button class="btn sm" data-edit="${s.id}">Edit</button>
+            <button class="btn sm" data-pw="${s.id}">Reset password</button>
+            <button class="btn sm" data-toggle="${s.id}">${s.active ? 'Switch off' : 'Switch on'}</button>
+          </td>
+        </tr>`).join('') || '<tr><td colspan="6" class="empty-state"><span>👥</span>No staff logins yet</td></tr>'}</tbody>
+      </table></div>`;
+    $('#addStaff').onclick = () => staffForm(null, outs);
+    view.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => staffForm(list.find(s => s.id === +b.dataset.edit), outs));
+    view.querySelectorAll('[data-toggle]').forEach(b => b.onclick = async () => {
+      const s = list.find(x => x.id === +b.dataset.toggle);
+      if (s.active && !confirm(`Switch off ${s.name}'s login? They will be signed out straight away.`)) return;
+      try { await api('/staff/' + s.id, { method: 'PUT', body: { active: !s.active } }); toast(s.active ? 'Login switched off' : 'Login switched on'); team(); } catch (e) { toast(e.message); }
+    });
+    view.querySelectorAll('[data-pw]').forEach(b => b.onclick = () => {
+      const s = list.find(x => x.id === +b.dataset.pw);
+      const m = modal(`<h2>Reset password</h2><p class="hint" style="margin:0">${esc(s.name)} (<b>${esc(s.username)}</b>) will be signed out everywhere.</p>
+        <label class="label">New password</label><div class="big-input" style="gap:8px"><input class="input" id="sp" value="${genPassword()}" style="height:44px;font-size:15px;text-transform:none;letter-spacing:.5px"><button class="btn" id="spGen" type="button">New</button></div>
+        <div class="modal-foot"><button class="btn" id="spCancel">Cancel</button><button class="btn primary" id="spSave">Set password</button></div>`);
+      $('#spGen', m.el).onclick = () => { $('#sp', m.el).value = genPassword(); };
+      $('#spCancel', m.el).onclick = m.close;
+      $('#spSave', m.el).onclick = async () => {
+        try { const r = await api(`/staff/${s.id}/password`, { method: 'POST', body: { password: $('#sp', m.el).value } }); showStaffCredentials(m, s.name, s.username, r.password); }
+        catch (e) { toast(e.message); }
+      };
+    });
+  }
+  function showStaffCredentials(m, name, username, password) {
+    const text = `${ME.tenant.name} – staff login\nLogin: ${location.origin}/admin\nUsername: ${username}\nPassword: ${password}`;
+    m.el.innerHTML = `<h2>Login ready</h2><p class="hint" style="margin:0">Give these details to ${esc(name)}. The password is shown only now.</p>
+      <div class="plan-note" style="margin-top:14px;line-height:1.8">Login: <b>${esc(location.origin)}/admin</b><br>Username: <b>${esc(username)}</b><br>Password: <b class="mono">${esc(password)}</b></div>
+      <div class="modal-foot"><button class="btn" id="cpy">Copy details</button><button class="btn primary" id="done">Done</button></div>`;
+    $('#cpy', m.el).onclick = async () => { try { await navigator.clipboard.writeText(text); toast('Copied'); } catch { toast('Copy not allowed — select the text instead'); } };
+    $('#done', m.el).onclick = () => { m.close(); team(); };
+  }
+  function staffForm(s, outs) {
+    const f = s || { name: '', username: '', role: 'counter', outlet_id: outs[0] ? outs[0].id : '' };
+    const m = modal(`<h2>${s ? 'Edit staff login' : 'Add a staff login'}</h2>
+      <div class="grid2">
+        <div><label class="label">Name</label><input class="input" id="sName" maxlength="80" value="${esc(f.name)}" placeholder="e.g. Ravi"></div>
+        <div><label class="label">Username</label><input class="input" id="sUser" maxlength="40" value="${esc(f.username)}" ${s ? 'disabled' : ''} placeholder="${esc(ME.tenant.slug)}.ravi" autocapitalize="none" spellcheck="false"></div>
+      </div>
+      <label class="label">What can they do?</label>
+      <div class="seg" id="sRole"><button type="button" data-r="counter">Counter: redeem only</button><button type="button" data-r="manager">Manager</button></div>
+      <label class="label">Outlet</label>
+      <select class="input" id="sOutlet"><option value="">All outlets (managers only)</option>${outs.filter(o => o.active).map(o => `<option value="${o.id}" ${String(o.id) === String(f.outlet_id) ? 'selected' : ''}>${esc(o.name)}</option>`).join('')}</select>
+      ${s ? '' : `<label class="label">Password</label><div class="big-input" style="gap:8px"><input class="input" id="sPw" value="${genPassword()}" style="height:44px;font-size:15px;text-transform:none;letter-spacing:.5px"><button class="btn" id="sGen" type="button">New</button></div>`}
+      <p class="err" id="sErr" style="color:var(--red);font-weight:600;min-height:18px;margin:12px 0 0"></p>
+      <div class="modal-foot">${s ? '<button class="btn danger" id="sDel" style="margin-right:auto">Delete</button>' : ''}<button class="btn" id="sCancel">Cancel</button><button class="btn primary" id="sSave">${s ? 'Save' : 'Create login'}</button></div>`);
+    const el = m.el;
+    let role = f.role;
+    const setRole = r => { role = r; el.querySelectorAll('#sRole button').forEach(b => b.classList.toggle('on', b.dataset.r === r)); };
+    el.querySelectorAll('#sRole button').forEach(b => b.onclick = () => setRole(b.dataset.r));
+    setRole(role);
+    if (!s) {
+      let touched = false;
+      $('#sUser', el).oninput = () => { touched = true; };
+      $('#sName', el).oninput = () => { if (!touched) $('#sUser', el).value = `${ME.tenant.slug}.${$('#sName', el).value.toLowerCase().replace(/[^a-z0-9]+/g, '').slice(0, 20)}`; };
+      $('#sGen', el).onclick = () => { $('#sPw', el).value = genPassword(); };
+    }
+    $('#sCancel', el).onclick = m.close;
+    const del = $('#sDel', el);
+    if (del) del.onclick = async () => {
+      if (!confirm(`Delete ${s.name}'s login for good?`)) return;
+      try { await api('/staff/' + s.id, { method: 'DELETE' }); m.close(); toast('Login deleted'); team(); } catch (e) { toast(e.message); }
+    };
+    $('#sSave', el).onclick = async () => {
+      const body = { name: $('#sName', el).value, role, outlet_id: $('#sOutlet', el).value };
+      try {
+        if (s) { await api('/staff/' + s.id, { method: 'PUT', body }); m.close(); toast('Saved'); team(); }
+        else {
+          const r = await api('/staff', { method: 'POST', body: { ...body, username: $('#sUser', el).value, password: $('#sPw', el).value } });
+          showStaffCredentials(m, body.name, $('#sUser', el).value.trim().toLowerCase(), r.password);
+        }
+      } catch (e) { $('#sErr', el).textContent = e.message; }
+    };
+    setTimeout(() => $('#sName', el).focus(), 50);
+  }
+
+  // ---------------------------------------------------------------- activity log
+  async function activity() {
+    view.innerHTML = `
+      <div class="page-head"><div><h1>Activity log</h1><p>Everything that happened in your account: who did it and when. Entries can't be edited or deleted.</p></div></div>
+      <div class="card"><div id="actList"></div><div style="text-align:center;margin-top:12px"><button class="btn" id="actMore" hidden>Show older</button></div></div>`;
+    let before = '';
+    const more = async () => {
+      const rows = await api('/activity' + (before ? '?before=' + before : ''));
+      $('#actList').insertAdjacentHTML('beforeend', rows.map(e => activityRow(e)).join('') || (before ? '' : '<div class="empty-state"><span>🛡️</span>Nothing yet</div>'));
+      if (rows.length) before = rows[rows.length - 1].id;
+      $('#actMore').hidden = rows.length < 60;
+    };
+    $('#actMore').onclick = more;
+    await more();
   }
 
   // ---------------------------------------------------------------- settings
@@ -646,7 +867,7 @@
           </div>
           <div class="card">
             <h3>Change password</h3>
-            ${ME.impersonated ? '<p class="hint" style="margin:0">You are viewing as the Super Admin. Reset this bakery&#39;s password from the Super Admin page.</p>' : `
+            ${ME.impersonated ? '<p class="hint" style="margin:0">You are viewing as the Super Admin. Reset this merchant&#39;s password from the Super Admin page.</p>' : `
             <input class="input" type="password" id="sPwOld" placeholder="Current password" autocomplete="current-password">
             <input class="input" type="password" id="sPw" placeholder="New password (min 8 characters)" autocomplete="new-password" style="margin-top:10px">
             <div class="modal-foot"><button class="btn dark" id="sPwSave">Change password</button></div>`}

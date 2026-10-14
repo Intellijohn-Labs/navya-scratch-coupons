@@ -1,6 +1,6 @@
-# Scratch & Win: QR scratch coupons for bakeries
+# Genuine Draw: QR coupons & lucky draws you can trust
 
-A multi-bakery platform. Each bakery prints its own QR coupons and hands them to customers. A customer scans the QR, enters their details, scratches a card on their phone and wins a random gift. At the counter, staff scan the reward QR to hand the gift over.
+A multi-merchant platform (formerly "Scratch & Win"). Each bakery prints its own QR coupons and hands them to customers. A customer scans the QR, enters their details, scratches a card on their phone and wins a random gift. At the counter, staff scan the reward QR to hand the gift over.
 
 The **platform owner** (Super Admin) adds bakeries, sets their passwords and controls their plans. Every bakery sees only its own gifts, coupons and customers, and its customers see the bakery's own logo, colours and details.
 
@@ -11,8 +11,20 @@ Live: https://navya-scratch-coupons.vercel.app (Navya Bakers was the first baker
 | Page | Who | What they do |
 |---|---|---|
 | `/super` | You, the platform owner | Add bakeries; set or reset their passwords; suspend them; set plan end dates and coupon limits; see each bakery's usage; **Open as bakery** to help them; delete a bakery |
-| `/admin` | Each bakery (username + password) | Dashboard, gifts, coupon batches and printing, customers, counter redemption, its own branding and settings |
+| `/admin` | Each merchant: the owner, plus staff logins | Dashboard, gifts, coupon batches and printing, customers, counter redemption, **outlets**, **team**, **activity log**, branding and settings |
 | `/c/CODE` | The bakery's customers | Scan → details → scratch → reward, in the bakery's branding |
+
+### Merchant staff (Phase 0)
+| Role | Can do |
+|---|---|
+| **Owner** (merchant username) | Everything |
+| **Manager** | Gifts, coupons, customers, redemption, view outlets. Not settings, team or the activity log |
+| **Counter** | Only check and redeem rewards, always recorded at their own outlet |
+
+Batches can be assigned to an **outlet**. The dashboard shows coupons handed out, scratched and redeemed per outlet.
+
+### Activity log (tamper-evident)
+Every important action (sign-ins; gift, batch, staff and outlet changes; customer claims; redemptions; Super Admin actions) is written to `audit_log`. Each entry stores the SHA-256 of the previous entry, so editing or deleting history breaks the chain. Super Admin → Activity log → **Verify log** re-checks every entry. Customer names and phone numbers are masked in the log.
 
 ### Account rules
 - **Pausing:** a **suspended** bakery, or one past its **plan end date**, can't log in. Its customers see "This offer is paused", and existing winners can still see their reward.
@@ -50,7 +62,10 @@ Tables are defined in [`db/schema.sql`](db/schema.sql) and created or updated au
 
 | Table | Holds |
 |---|---|
-| `tenants` | One row per bakery: login, branding, plan, status |
+| `tenants` | One row per merchant: owner login, branding, plan, status |
+| `outlets` | A merchant's branches |
+| `staff` | Manager and counter logins |
+| `audit_log` | Hash-chained activity log (never updated) |
 | `gifts` | Each bakery's prizes, with chance, stock and validity |
 | `batches` | Each print run of coupons |
 | `coupons` | Every printed coupon, with the customer's details, what they won, and claim and redeem times |

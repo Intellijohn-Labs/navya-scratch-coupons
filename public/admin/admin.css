@@ -10,7 +10,7 @@ html, body { margin: 0; }
 body { font-family: 'Albert Sans', system-ui, sans-serif; background: var(--bg); color: var(--ink); font-size: 14.5px; }
 button, input, select, textarea { font: inherit; color: inherit; }
 a { color: var(--brown); }
-.hidden { display: none !important; }
+.hidden, [hidden] { display: none !important; }
 
 /* ---------- login ---------- */
 .login { min-height: 100vh; display: grid; place-items: center; padding: 16px;
@@ -304,3 +304,22 @@ td small { color: var(--muted); display: block; }
 .color-row { display: flex; align-items: center; gap: 10px; }
 .color-row input[type=color] { width: 46px; height: 44px; border: 1.5px solid var(--line); border-radius: 11px; padding: 3px; background: #fff; cursor: pointer; }
 .plan-note { background: var(--orange-soft); border-radius: 12px; padding: 12px 14px; font-size: 13.5px; color: #6B4A38; margin-bottom: 14px; }
+
+/* ---------- activity log ---------- */
+.act-row { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; gap: 12px; padding: 12px 0; border-top: 1px solid var(--line); align-items: start; }
+.act-row:first-child { border-top: 0; }
+.act-ico { width: 36px; height: 36px; border-radius: 10px; background: var(--grey-soft); display: grid; place-items: center; font-size: 17px; }
+.act-main small { color: var(--muted); display: block; margin-top: 2px; }
+.act-details { font-size: 12.5px; color: #5E4A40; margin-top: 5px; line-height: 1.5; overflow-wrap: anywhere; }
+.act-id { font-size: 11.5px; color: #B5A196; font-variant-numeric: tabular-nums; }
+.chain { display: block; line-height: 1.5; padding: 14px 16px; border-radius: 14px; margin-bottom: 16px; font-weight: 600; }
+.chain.ok { background: var(--green-soft); color: #12693B; }
+.chain.bad { background: var(--red-soft); color: #9E1F1F; }
+.chain.idle { background: #F1F3F8; color: #3A4560; }
+.role-pill { display: inline-block; padding: 2px 8px; border-radius: 99px; font-size: 11.5px; font-weight: 800; }
+.role-pill.manager { background: var(--blue-soft); color: var(--blue); }
+.role-pill.counter { background: var(--gold-soft); color: #9A6A00; }
+@media (max-width: 760px) {
+  .side { scrollbar-width: none; }
+  .side::-webkit-scrollbar { display: none; }
+}

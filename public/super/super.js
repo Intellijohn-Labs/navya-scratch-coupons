@@ -79,10 +79,10 @@
 
   // ---------------------------------------------------------------- router
   async function route() {
-    const name = location.hash.slice(1) || 'bakeries';
+    const name = ['merchants', 'activity', 'account'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'merchants';
     document.querySelectorAll('#nav a').forEach(a => a.classList.toggle('on', a.dataset.r === name));
     view.innerHTML = '<div class="empty-state">Loading…</div>';
-    try { await (name === 'account' ? account : bakeries)(); }
+    try { await ({ merchants: bakeries, activity, account })[name](); }
     catch (e) { if (e.message !== 'Please log in') view.innerHTML = `<div class="empty-state"><span>⚠️</span>${esc(e.message)}</div>`; }
   }
   window.addEventListener('hashchange', route);
@@ -94,18 +94,18 @@
     const active = tenants.filter(t => statusOf(t) === 'active').length;
     view.innerHTML = `
       <div class="page-head">
-        <div><h1>Bakeries</h1><p>Every bakery using your Scratch &amp; Win platform.</p></div>
-        <button class="btn primary" id="addBk">+ Add bakery</button>
+        <div><h1>Merchants</h1><p>Every business using Genuine Draw.</p></div>
+        <button class="btn primary" id="addBk">+ Add merchant</button>
       </div>
       <div class="kpis">
-        <div class="kpi hero"><span>Bakeries</span><b>${tenants.length}</b><small>${active} active</small></div>
+        <div class="kpi hero"><span>Merchants</span><b>${tenants.length}</b><small>${active} active</small></div>
         <div class="kpi"><span>Coupons printed</span><b>${sum('printed')}</b><small>all bakeries</small></div>
         <div class="kpi"><span>Scratched</span><b>${sum('claimed')}</b><small>${sum('claims_30d')} in last 30 days</small></div>
         <div class="kpi"><span>Redeemed</span><b>${sum('redeemed')}</b><small>gifts handed over</small></div>
-        <div class="kpi"><span>Customers</span><b>${sum('customers')}</b><small>unique mobiles per bakery</small></div>
+        <div class="kpi"><span>Customers</span><b>${sum('customers')}</b><small>unique mobiles per merchant</small></div>
         <div class="kpi"><span>Need attention</span><b>${tenants.length - active}</b><small>suspended or expired</small></div>
       </div>
-      <div class="toolbar"><input class="input" id="q" placeholder="Search bakery, username or contact…"></div>
+      <div class="toolbar"><input class="input" id="q" placeholder="Search merchant, username or contact…"></div>
       <div class="bk-list" id="bkList"></div>`;
     const draw = () => {
       const s = $('#q').value.trim().toLowerCase();
@@ -117,7 +117,7 @@
           <div>
             <h4>${esc(t.name)} <span class="pill ${st}">${STATUS_LABEL[st]}</span></h4>
             <div class="sub">Username <b>${esc(t.slug)}</b> · ${t.plan_expires_on ? 'plan till ' + fmtDate(t.plan_expires_on) : 'no expiry'}</div>
-            <div class="sub">${esc([t.contact_name, t.contact_phone].filter(Boolean).join(' · ') || 'No contact saved')} · last login ${ago(t.last_login_at)}</div>
+            <div class="sub">${t.outlets} outlet${t.outlets === 1 ? '' : 's'} · ${t.staff} staff · ${esc([t.contact_name, t.contact_phone].filter(Boolean).join(' · ') || 'no contact saved')} · last login ${ago(t.last_login_at)}</div>
           </div>
           <div class="bk-stats">
             <div><b>${t.printed}${t.max_coupons != null ? `<small style="font-weight:600;color:var(--muted)"> / ${t.max_coupons}</small>` : ''}</b>Coupons</div>
@@ -126,12 +126,12 @@
             <div><b>${t.customers}</b>Customers</div>
           </div>
           <div class="bk-actions">
-            <button class="btn sm primary" data-open="${t.id}" title="Open this bakery's admin as them">Open as bakery</button>
+            <button class="btn sm primary" data-open="${t.id}" title="Open this merchant's admin as them">Open as merchant</button>
             <button class="btn sm" data-edit="${t.id}">Edit</button>
             <button class="btn sm" data-pw="${t.id}">Reset password</button>
           </div>
         </div>`;
-      }).join('') || `<div class="card empty-state"><span>🏪</span>${tenants.length ? 'No bakery matches your search' : 'No bakeries yet — add your first one!'}</div>`;
+      }).join('') || `<div class="card empty-state"><span>🏪</span>${tenants.length ? 'No merchant matches your search' : 'No merchants yet — add your first one!'}</div>`;
       view.querySelectorAll('[data-open]').forEach(b => b.onclick = async () => {
         await api(`/tenants/${b.dataset.open}/impersonate`, { method: 'POST' });
         location.href = '/admin';
@@ -146,11 +146,11 @@
 
   function credentialsHtml(t, password) {
     const loginUrl = location.origin + '/admin';
-    const text = `Your Scratch & Win account for ${t.name}\nLogin: ${loginUrl}\nUsername: ${t.slug}\nPassword: ${password}\nPlease change the password after your first login (Settings → Change password).`;
+    const text = `Your Genuine Draw account for ${t.name}\nLogin: ${loginUrl}\nUsername: ${t.slug}\nPassword: ${password}\nPlease change the password after your first login (Settings → Change password).`;
     const wa = t.contact_phone ? `https://wa.me/${String(t.contact_phone).replace(/\D/g, '').replace(/^(?=\d{10}$)/, '91')}?text=${encodeURIComponent(text)}` : '';
     return { html: `<div class="cred">
         <dl><dt>Login page</dt><dd>${esc(loginUrl)}</dd><dt>Username</dt><dd>${esc(t.slug)}</dd><dt>Password</dt><dd>${esc(password)}</dd></dl>
-        <div class="warn">This password is shown only now. Copy it and share it with the bakery.</div>
+        <div class="warn">This password is shown only now. Copy it and share it with the merchant.</div>
       </div>
       <div class="modal-foot">
         ${wa ? `<a class="btn" href="${esc(wa)}" target="_blank" rel="noopener">Send on WhatsApp</a>` : ''}
@@ -169,9 +169,9 @@
 
   function bakeryForm(t, isNew) {
     return `
-      <div class="section-title">Bakery</div>
+      <div class="section-title">Merchant</div>
       <div class="grid2">
-        <div><label class="label">Bakery name</label><input class="input" id="fName" maxlength="80" value="${esc(t.name)}" placeholder="e.g. Royal Bakes"></div>
+        <div><label class="label">Business name</label><input class="input" id="fName" maxlength="80" value="${esc(t.name)}" placeholder="e.g. Royal Bakes"></div>
         <div><label class="label">Username <i>(used to log in)</i></label><input class="input" id="fSlug" maxlength="40" value="${esc(t.slug)}" placeholder="e.g. royal-bakes" autocapitalize="none" spellcheck="false"></div>
       </div>
       ${isNew ? `<label class="label">Password <i>(min 8 characters)</i></label>
@@ -226,9 +226,9 @@
 
   function addBakery() {
     const t = { name: '', slug: '', color: '#F47216', color2: '#963B1F', status: 'active', tagline: '', address: '', contact_name: '', contact_phone: '', notes: '', logo: '' };
-    const m = modal(`<h2>Add a bakery</h2><p class="hint" style="margin:0">They get their own admin, coupons, customers and branding.</p>
+    const m = modal(`<h2>Add a merchant</h2><p class="hint" style="margin:0">They get their own admin, outlets, staff logins, coupons, customers and branding.</p>
       ${bakeryForm(t, true)}
-      <div class="modal-foot"><button class="btn" id="fCancel">Cancel</button><button class="btn primary" id="fSave">Create bakery</button></div>`, { wide: true });
+      <div class="modal-foot"><button class="btn" id="fCancel">Cancel</button><button class="btn primary" id="fSave">Create merchant</button></div>`, { wide: true });
     const el = m.el, values = wireForm(el, t);
     let slugTouched = false;
     $('#fSlug', el).oninput = () => { slugTouched = true; };
@@ -238,7 +238,7 @@
       const body = { ...values(), password: $('#fPw', el).value, starter_gifts: $('#fStarter', el).checked };
       try {
         const r = await api('/tenants', { method: 'POST', body });
-        showCredentials(m, { ...body, slug: slugify(body.slug) || body.slug }, r.password, 'Bakery created 🎉');
+        showCredentials(m, { ...body, slug: slugify(body.slug) || body.slug }, r.password, 'Merchant created 🎉');
       } catch (e) { $('#fErr', el).textContent = e.message; }
     };
     setTimeout(() => $('#fName', el).focus(), 50);
@@ -250,7 +250,7 @@
       ${bakeryForm(t, false)}
       <div class="modal-foot"><button class="btn" id="fCancel">Cancel</button><button class="btn primary" id="fSave">Save changes</button></div>
       <div class="danger-zone">
-        <h4>Delete bakery</h4>
+        <h4>Delete merchant</h4>
         <p class="hint" style="margin:0 0 10px">Permanently deletes ${esc(t.name)} with all its gifts, coupons and customers. Printed coupons stop working. This cannot be undone.</p>
         <div class="big-input" style="gap:8px"><input class="input" id="fDel" placeholder="Type ${esc(t.slug)} to confirm" style="height:44px;font-size:15px;text-transform:none;letter-spacing:0"><button class="btn danger" id="fDelBtn">Delete</button></div>
       </div>`, { wide: true });
@@ -262,7 +262,7 @@
     };
     $('#fDelBtn', el).onclick = async () => {
       if (!confirm(`Delete ${t.name} and all its data for good?`)) return;
-      try { await api('/tenants/' + id, { method: 'DELETE', body: { confirm: $('#fDel', el).value.trim() } }); m.close(); toast('Bakery deleted'); route(); }
+      try { await api('/tenants/' + id, { method: 'DELETE', body: { confirm: $('#fDel', el).value.trim() } }); m.close(); toast('Merchant deleted'); route(); }
       catch (e) { toast(e.message); }
     };
   }
@@ -280,6 +280,43 @@
       try { const r = await api(`/tenants/${t.id}/password`, { method: 'POST', body: { password: $('#rPw', el).value } }); showCredentials(m, t, r.password, 'Password reset'); }
       catch (e) { $('#rErr', el).textContent = e.message; }
     };
+  }
+
+  // ---------------------------------------------------------------- activity log
+  async function activity() {
+    const { tenants } = await api('/overview');
+    view.innerHTML = `
+      <div class="page-head">
+        <div><h1>Activity log</h1><p>Every important action on the platform. Each entry is sealed with a fingerprint of the one before, so any change to history is detectable.</p></div>
+        <button class="btn primary" id="verify">🛡️ Verify log</button>
+      </div>
+      <div class="chain idle" id="chain">Press <b>Verify log</b> to re-check every entry from the very first one.</div>
+      <div class="toolbar"><select class="input" id="fTenant" style="max-width:320px"><option value="">All merchants</option>${tenants.map(t => `<option value="${t.id}">${esc(t.name)}</option>`).join('')}</select></div>
+      <div class="card"><div id="actList"></div><div style="text-align:center;margin-top:12px"><button class="btn" id="actMore" hidden>Show older</button></div></div>`;
+    let before = '';
+    const load = async reset => {
+      if (reset) { before = ''; $('#actList').innerHTML = ''; }
+      const t = $('#fTenant').value;
+      const rows = await api('/activity?' + new URLSearchParams({ ...(t ? { tenant: t } : {}), ...(before ? { before } : {}) }));
+      $('#actList').insertAdjacentHTML('beforeend', rows.map(e => activityRow(e, { showMerchant: true })).join('') || (before ? '' : '<div class="empty-state"><span>🛡️</span>Nothing yet</div>'));
+      if (rows.length) before = rows[rows.length - 1].id;
+      $('#actMore').hidden = rows.length < 80;
+    };
+    $('#fTenant').onchange = () => load(true);
+    $('#actMore').onclick = () => load(false);
+    $('#verify').onclick = async () => {
+      const box = $('#chain'), btn = $('#verify');
+      btn.disabled = true; box.className = 'chain idle'; box.textContent = 'Checking every entry…';
+      try {
+        const r = await api('/activity/verify');
+        box.className = 'chain ' + (r.ok ? 'ok' : 'bad');
+        box.innerHTML = r.ok
+          ? `✅ Log intact: all <b>${r.checked}</b> entries check out. Latest fingerprint <code>${esc(r.last_hash.slice(0, 16))}…</code>`
+          : `⚠️ Log has been altered at entry <b>#${r.broken_at}</b> (${r.checked} entries before it are fine). Investigate before trusting anything after it.`;
+      } catch (e) { box.className = 'chain bad'; box.textContent = e.message; }
+      btn.disabled = false;
+    };
+    await load(true);
   }
 
   // ---------------------------------------------------------------- my account

@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#2B160D">
-<title>Scratch & Win · Bakery admin</title>
+<meta name="theme-color" content="#14213D">
+<title>Genuine Draw · Merchant admin</title>
 <link rel="icon" href="/img/platform-icon.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -16,8 +16,8 @@
   <div id="login" class="login hidden">
     <form class="login-card" id="loginForm">
       <img src="/img/platform-icon.svg" alt="" class="login-icon">
-      <h1>Scratch &amp; Win</h1>
-      <p>Bakery admin · sign in to continue</p>
+      <h1>Genuine Draw</h1>
+      <p>Merchant admin · sign in to continue</p>
       <input class="input" name="username" placeholder="Username" autocomplete="username" autocapitalize="none" spellcheck="false" autofocus>
       <input class="input" type="password" name="password" placeholder="Password" autocomplete="current-password" style="margin-top:10px">
       <p class="err" id="loginErr"></p>
@@ -29,7 +29,7 @@
     <aside class="side">
       <div class="brand">
         <img id="sideLogo" alt="" hidden><span id="sideInitial" class="side-initial"></span>
-        <div><b id="sideTitle">Scratch &amp; Win</b><small>Scratch &amp; Win admin</small></div>
+        <div><b id="sideTitle">Genuine Draw</b><small id="sideRole">Genuine Draw</small></div>
       </div>
       <nav class="nav" id="nav">
         <a href="#dashboard" data-r="dashboard" title="Dashboard" aria-label="Dashboard"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="7" height="9" rx="2"/><rect x="14" y="3" width="7" height="5" rx="2"/><rect x="14" y="12" width="7" height="9" rx="2"/><rect x="3" y="16" width="7" height="5" rx="2"/></svg><span>Dashboard</span></a>
@@ -37,10 +37,14 @@
         <a href="#coupons" data-r="coupons" title="Coupons & Print" aria-label="Coupons &amp; Print"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v3a2 2 0 0 0 0 4v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-3a2 2 0 0 0 0-4Z"/><path d="M14 5v14" stroke-dasharray="2 3"/></svg><span>Coupons &amp; Print</span></a>
         <a href="#customers" data-r="customers" title="Customers" aria-label="Customers"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="8" r="4"/><path d="M2 21a7 7 0 0 1 14 0M16 4a4 4 0 0 1 0 8M22 21a7 7 0 0 0-4-6.3"/></svg><span>Customers</span></a>
         <a href="#redeem" data-r="redeem" title="Redeem at counter" aria-label="Redeem at counter"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7V5a1 1 0 0 1 1-1h2M17 4h2a1 1 0 0 1 1 1v2M20 17v2a1 1 0 0 1-1 1h-2M7 20H5a1 1 0 0 1-1-1v-2M7 12h10"/></svg><span>Redeem at counter</span></a>
+        <a href="#outlets" data-r="outlets" title="Outlets" aria-label="Outlets"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18M5 21V9l7-5 7 5v12M10 21v-6h4v6"/></svg><span>Outlets</span></a>
+        <a href="#team" data-r="team" title="Team" aria-label="Team"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="7" r="3.5"/><path d="M5 21a7 7 0 0 1 14 0"/><path d="M19 4.5a3 3 0 0 1 0 5.5M5 4.5a3 3 0 0 0 0 5.5"/></svg><span>Team</span></a>
+        <a href="#activity" data-r="activity" title="Activity log" aria-label="Activity log"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3v6c0 5-3.4 8.6-8 10-4.6-1.4-8-5-8-10V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/></svg><span>Activity log</span></a>
         <a href="#settings" data-r="settings" title="Settings" aria-label="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg><span>Settings</span></a>
       </nav>
       <div class="side-foot">
         <span id="sideName"></span>
+        <button id="myPw">My password</button>
         <button id="logout">Sign out</button>
       </div>
     </aside>

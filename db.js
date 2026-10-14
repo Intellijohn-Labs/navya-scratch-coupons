@@ -120,6 +120,56 @@ async function addStarterGifts(tenantId, bakeryName, client = pool) {
   }
 }
 
+// ---------- tamper-evident activity log ----------
+// JSON with sorted keys, so the same details always hash the same way (JSONB reorders keys).
+function canonical(v) {
+  if (Array.isArray(v)) return '[' + v.map(canonical).join(',') + ']';
+  if (v && typeof v === 'object') return '{' + Object.keys(v).sort().map(k => JSON.stringify(k) + ':' + canonical(v[k])).join(',') + '}';
+  return JSON.stringify(v ?? null);
+}
+const GENESIS = '0'.repeat(64);
+function auditHash(prev, r) {
+  return crypto.createHash('sha256').update([prev, r.created_at, r.tenant_id ?? '', r.actor_type, r.actor_id ?? '', r.actor_name,
+    r.action, r.entity, r.entity_id, canonical(r.details)].join('|')).digest('hex');
+}
+// Appends one entry. Pass the transaction client when inside one, so the entry commits (or rolls back) with the change.
+async function audit(entry, client) {
+  const write = async c => {
+    await c.query('SELECT pg_advisory_xact_lock(7777)'); // one writer at a time keeps the chain linear
+    const last = await one('SELECT hash FROM audit_log ORDER BY id DESC LIMIT 1', [], c);
+    const r = {
+      tenant_id: entry.tenantId ?? null,
+      actor_type: entry.actor?.type || 'system',
+      actor_id: entry.actor?.id ?? null,
+      actor_name: String(entry.actor?.name || '').slice(0, 120),
+      action: entry.action,
+      entity: entry.entity || '',
+      entity_id: String(entry.entityId ?? ''),
+      details: entry.details || {},
+      created_at: utcNow(),
+    };
+    const prev = last ? last.hash : GENESIS;
+    await q(`INSERT INTO audit_log(tenant_id, actor_type, actor_id, actor_name, action, entity, entity_id, details, ip, created_at, prev_hash, hash)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+    [r.tenant_id, r.actor_type, r.actor_id, r.actor_name, r.action, r.entity, r.entity_id, JSON.stringify(r.details),
+      String(entry.ip || '').slice(0, 60), r.created_at, prev, auditHash(prev, r)], c);
+  };
+  return client ? write(client) : tx(write);
+}
+// Re-computes every hash from the start. Any edited, inserted or deleted row breaks the chain.
+async function verifyAudit() {
+  let prev = GENESIS, checked = 0;
+  for (let after = 0; ;) {
+    const rows = await q('SELECT * FROM audit_log WHERE id > $1 ORDER BY id LIMIT 2000', [after]);
+    if (!rows.length) break;
+    for (const r of rows) {
+      if (r.prev_hash !== prev || auditHash(prev, r) !== r.hash) return { ok: false, checked, broken_at: r.id };
+      prev = r.hash; checked++; after = r.id;
+    }
+  }
+  return { ok: true, checked, last_hash: prev };
+}
+
 // ---------- schema, upgrades and first-run setup (once per database, safe under concurrency) ----------
 async function migrateSingleBakery(c) {
   // Data from before multi-bakery support becomes the first bakery: Navya Bakers.
@@ -155,6 +205,10 @@ async function init() {
     await c.query('SELECT pg_advisory_xact_lock(1984)'); // only one instance migrates at a time
     await c.query(schema);
     await migrateSingleBakery(c);
+    // Every merchant has at least one outlet.
+    await q(`INSERT INTO outlets(tenant_id, name, address, maps_url)
+      SELECT t.id, 'Main shop', t.address, t.maps_url FROM tenants t
+      WHERE NOT EXISTS (SELECT 1 FROM outlets o WHERE o.tenant_id = t.id)`, [], c);
     if (!await one("SELECT 1 FROM settings WHERE key = 'session_secret'", [], c)) {
       await setSetting('session_secret', crypto.randomBytes(32).toString('hex'), c);
     }
@@ -175,5 +229,5 @@ function ready() {
 
 module.exports = {
   pool, q, one, tx, ready, getSetting, setSetting, createBatch, addStarterGifts, randomCode, utcNow, daysFromNow,
-  hashPassword, verifyPassword, randomPassword,
+  hashPassword, verifyPassword, randomPassword, audit, verifyAudit,
 };

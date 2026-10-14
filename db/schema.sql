@@ -1,4 +1,4 @@
--- Scratch & Win — multi-bakery Postgres schema (Neon).
+-- Genuine Draw — multi-merchant Postgres schema (Neon).
 -- Idempotent: safe to run on every start. Timestamps are stored as UTC (timestamp without time zone).
 
 -- Platform-wide values (session secret, super-admin password hash, …).
@@ -105,3 +105,61 @@ CREATE INDEX IF NOT EXISTS idx_coupons_batch    ON coupons(batch_id);
 CREATE INDEX IF NOT EXISTS idx_coupons_tenant   ON coupons(tenant_id, claimed_at DESC);
 CREATE INDEX IF NOT EXISTS idx_coupons_phone    ON coupons(tenant_id, phone);
 CREATE INDEX IF NOT EXISTS idx_coupons_claimed  ON coupons(claimed_at DESC) WHERE claimed_at IS NOT NULL;
+
+-- ---------------------------------------------------------------- Phase 0: outlets, staff, activity log
+
+-- A merchant's branches / shops.
+CREATE TABLE IF NOT EXISTS outlets (
+  id          SERIAL PRIMARY KEY,
+  tenant_id   INTEGER  NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name        TEXT     NOT NULL,
+  address     TEXT     NOT NULL DEFAULT '',
+  phone       TEXT     NOT NULL DEFAULT '',
+  maps_url    TEXT     NOT NULL DEFAULT '',
+  active      SMALLINT NOT NULL DEFAULT 1,
+  created_at  TIMESTAMP NOT NULL DEFAULT (now() AT TIME ZONE 'utc')
+);
+CREATE INDEX IF NOT EXISTS idx_outlets_tenant ON outlets(tenant_id);
+
+-- Extra logins for a merchant. The merchant itself (tenants row) is the owner.
+--   manager: everything except account settings, team and outlets
+--   counter: redeem rewards only (tied to an outlet)
+CREATE TABLE IF NOT EXISTS staff (
+  id               SERIAL PRIMARY KEY,
+  tenant_id        INTEGER  NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  outlet_id        INTEGER  REFERENCES outlets(id) ON DELETE SET NULL,
+  name             TEXT     NOT NULL,
+  username         TEXT     NOT NULL UNIQUE CHECK (username ~ '^[a-z0-9][a-z0-9.-]{1,39}$'),
+  role             TEXT     NOT NULL CHECK (role IN ('manager', 'counter')),
+  password_hash    TEXT     NOT NULL,
+  session_version  INTEGER  NOT NULL DEFAULT 1,
+  active           SMALLINT NOT NULL DEFAULT 1,
+  last_login_at    TIMESTAMP,
+  created_at       TIMESTAMP NOT NULL DEFAULT (now() AT TIME ZONE 'utc')
+);
+CREATE INDEX IF NOT EXISTS idx_staff_tenant ON staff(tenant_id);
+
+ALTER TABLE batches ADD COLUMN IF NOT EXISTS outlet_id INTEGER REFERENCES outlets(id) ON DELETE SET NULL;      -- where the coupons are handed out
+ALTER TABLE coupons ADD COLUMN IF NOT EXISTS redeemed_outlet_id INTEGER REFERENCES outlets(id) ON DELETE SET NULL;
+ALTER TABLE coupons ADD COLUMN IF NOT EXISTS redeemed_by TEXT;                                                 -- who handed the gift over
+
+-- Tamper-evident activity log: every row stores the hash of the previous row, so editing or
+-- deleting history breaks the chain (see verifyAudit in db.js). Rows are never updated.
+-- tenant_id has no foreign key on purpose: history stays even if a merchant is deleted.
+CREATE TABLE IF NOT EXISTS audit_log (
+  id          BIGSERIAL PRIMARY KEY,
+  tenant_id   INTEGER,
+  actor_type  TEXT     NOT NULL,          -- super | owner | manager | counter | customer | system
+  actor_id    INTEGER,
+  actor_name  TEXT     NOT NULL DEFAULT '',
+  action      TEXT     NOT NULL,          -- e.g. coupon.claimed, gift.updated, merchant.suspended
+  entity      TEXT     NOT NULL DEFAULT '',
+  entity_id   TEXT     NOT NULL DEFAULT '',
+  details     JSONB    NOT NULL DEFAULT '{}',
+  ip          TEXT     NOT NULL DEFAULT '',
+  created_at  TIMESTAMP NOT NULL,
+  prev_hash   TEXT     NOT NULL,
+  hash        TEXT     NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_audit_tenant ON audit_log(tenant_id, id DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_log(entity, entity_id);

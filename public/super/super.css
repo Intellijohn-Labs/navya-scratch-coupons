@@ -1,8 +1,9 @@
-/* Super Admin: same building blocks as the bakery admin, with a distinct indigo frame. */
-body.super .side { background: #1E1B2E; }
-body.super .nav a.on { background: linear-gradient(135deg, #8B7CF6, #5B47E0); box-shadow: 0 10px 20px -10px rgba(91, 71, 224, .8); }
-body.super .side-foot button { border-color: #3A3552; }
-body.super .kpi.hero { background: linear-gradient(140deg, #8B7CF6, #5B47E0 60%, #3B2BB0); }
+/* Super Admin: same building blocks as the merchant admin, in Genuine Draw navy and gold. */
+body.super .side { background: #14213D; }
+body.super .nav a.on { background: linear-gradient(135deg, #F7CF6B, #E0A33A); color: #14213D; box-shadow: 0 10px 20px -10px rgba(224, 163, 58, .8); }
+body.super .side-foot button { border-color: #2C3B60; }
+body.super .kpi.hero { background: linear-gradient(140deg, #2A3F6E, #14213D 70%); }
+body.super .btn.primary { background: linear-gradient(135deg, #2A3F6E, #14213D); box-shadow: 0 8px 18px -10px rgba(20, 33, 61, .8); }
 
 .bk-list { display: grid; gap: 12px; }
 .bk { display: grid; grid-template-columns: 52px minmax(0, 1.4fr) minmax(0, 2fr) auto; gap: 16px; align-items: center; background: #fff; border: 1px solid var(--line); border-radius: 16px; padding: 14px 16px; }

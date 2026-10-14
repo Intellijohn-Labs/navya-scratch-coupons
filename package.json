@@ -1,7 +1,7 @@
 {
-  "name": "scratch-and-win",
-  "version": "3.0.0",
-  "description": "Scratch & Win — multi-bakery QR scratch-coupon platform (super admin, bakery admin, customer scratch page)",
+  "name": "genuine-draw",
+  "version": "4.0.0",
+  "description": "Genuine Draw — multi-merchant QR coupon & lucky-draw trust platform (super admin, merchant admin with outlets/staff, customer scratch page, tamper-evident activity log)",
   "main": "server.js",
   "private": true,
   "engines": {
