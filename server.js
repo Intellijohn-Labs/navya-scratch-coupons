@@ -1253,6 +1253,12 @@ app.get('/api/admin/reports', a(async (req, res) => {
     q(`SELECT c.gift_name AS name, c.gift_kind AS kind, COUNT(*) AS n, COUNT(*) FILTER (WHERE c.status = 'redeemed') AS redeemed
       ${base} AND ${inRange('c.claimed_at')} GROUP BY 1, 2 ORDER BY n DESC LIMIT 20`, P),
   ]);
+  // Coupons printed for "All outlets" (and redemptions not tied to an outlet) get their own row, so the table adds up.
+  const none = await one(`SELECT COUNT(*) FILTER (WHERE b.outlet_id IS NULL AND ${inRange('b.created_at')} AND c.status <> 'void') AS issued,
+      COUNT(*) FILTER (WHERE b.outlet_id IS NULL AND ${inRange('c.claimed_at')}) AS claimed,
+      COUNT(*) FILTER (WHERE b.outlet_id IS NULL AND ${inRange('c.claimed_at')} AND c.gift_kind = 'prize') AS winners,
+      COUNT(*) FILTER (WHERE c.status = 'redeemed' AND c.redeemed_outlet_id IS NULL AND ${inRange('c.redeemed_at')}) AS redeemed ${base}`, P);
+  if (none.issued || none.claimed || none.redeemed) outlets.push({ id: null, name: 'All outlets (not assigned)', ...none });
   res.json({ from, to, totals, campaigns, outlets, days, gifts });
 }));
 app.get('/api/admin/reports.csv', a(async (req, res) => {

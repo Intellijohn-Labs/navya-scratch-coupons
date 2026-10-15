@@ -1013,10 +1013,10 @@ Tip: if the shop has just closed, untick "Open" instead to keep its history.`
         <h3 class="sec">By outlet</h3>
         <div class="table-wrap"><table class="rtable">
           <thead><tr><th>Outlet</th><th>Coupons handed out</th><th>Played</th><th>Winners</th><th>Redeemed here</th></tr></thead>
-          <tbody>${r.outlets.map(o => `<tr><td data-label="Outlet"><b>${esc(o.name)}</b></td><td data-label="Handed out">${o.issued}</td>
+          <tbody>${r.outlets.map(o => `<tr><td data-label="Outlet">${o.id ? `<b>${esc(o.name)}</b>` : `<i>${esc(o.name)}</i>`}</td><td data-label="Handed out">${o.issued}</td>
             <td data-label="Played">${o.claimed}</td><td data-label="Winners">${o.winners}</td><td data-label="Redeemed here">${o.redeemed}</td></tr>`).join('')}</tbody>
         </table></div>
-        <p class="hint">Coupons printed for "All outlets" aren't counted against a single outlet.</p>
+        <p class="hint">"Coupons handed out", "Played" and "Winners" follow the outlet chosen in <b>Handed out at</b> when the coupon batch was created. "Redeemed here" is the outlet where the counter handed the gift over.</p>
         ${r.gifts.length ? `<h3 class="sec">Results</h3><div class="table-wrap"><table class="rtable"><thead><tr><th>Result</th><th>Times</th><th>Redeemed</th></tr></thead>
           <tbody>${r.gifts.map(g => `<tr><td data-label="Result">${esc(g.name)}</td><td data-label="Times">${g.n}</td><td data-label="Redeemed">${g.kind === 'prize' ? g.redeemed : '—'}</td></tr>`).join('')}</tbody></table></div>` : ''}`;
     };
