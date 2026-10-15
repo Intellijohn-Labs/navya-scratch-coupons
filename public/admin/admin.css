@@ -467,3 +467,20 @@ body.super .login, .login.platform {
   .camp-grid { grid-template-columns: 1fr; }
   .prize-row { grid-template-columns: 54px 1fr 64px auto; }
 }
+
+/* ---------- sidebar fits short screens ---------- */
+@media (min-width: 761px) {
+  .side { overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+  .side-foot { padding-bottom: 4px; }
+}
+@media (min-width: 761px) and (max-height: 860px) {
+  .brand { padding-bottom: 14px; }
+  .nav { gap: 2px; }
+  .nav a { padding: 8px 12px; }
+  .side-foot button { padding: 7px 12px; margin-top: 8px; }
+}
+@media (min-width: 761px) and (max-height: 700px) {
+  .side { padding-top: 14px; padding-bottom: 10px; }
+  .nav a { padding: 6px 12px; font-size: 13.5px; }
+  .side-foot { font-size: 11px; }
+}
