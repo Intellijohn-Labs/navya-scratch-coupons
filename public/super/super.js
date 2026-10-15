@@ -133,8 +133,8 @@
         </div>`;
       }).join('') || `<div class="card empty-state"><span>🏪</span>${tenants.length ? 'No merchant matches your search' : 'No merchants yet — add your first one!'}</div>`;
       view.querySelectorAll('[data-open]').forEach(b => b.onclick = async () => {
-        await api(`/tenants/${b.dataset.open}/impersonate`, { method: 'POST' });
-        location.href = '/admin';
+        const r = await api(`/tenants/${b.dataset.open}/impersonate`, { method: 'POST' });
+        location.href = r.url || '/admin';
       });
       view.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => editBakery(+b.dataset.edit));
       view.querySelectorAll('[data-pw]').forEach(b => b.onclick = () => resetPassword(tenants.find(t => t.id === +b.dataset.pw)));
@@ -145,7 +145,7 @@
   }
 
   function credentialsHtml(t, password) {
-    const loginUrl = location.origin + '/admin';
+    const loginUrl = t.admin_url || location.origin + '/admin';
     const text = `Your Genuine Draw account for ${t.name}\nLogin: ${loginUrl}\nUsername: ${t.slug}\nPassword: ${password}\nPlease change the password after your first login (Settings → Change password).`;
     const wa = t.contact_phone ? `https://wa.me/${String(t.contact_phone).replace(/\D/g, '').replace(/^(?=\d{10}$)/, '91')}?text=${encodeURIComponent(text)}` : '';
     return { html: `<div class="cred">
@@ -238,7 +238,7 @@
       const body = { ...values(), password: $('#fPw', el).value, starter_gifts: $('#fStarter', el).checked };
       try {
         const r = await api('/tenants', { method: 'POST', body });
-        showCredentials(m, { ...body, slug: slugify(body.slug) || body.slug }, r.password, 'Merchant created 🎉');
+        showCredentials(m, { ...body, slug: slugify(body.slug) || body.slug, admin_url: r.admin_url }, r.password, 'Merchant created 🎉');
       } catch (e) { $('#fErr', el).textContent = e.message; }
     };
     setTimeout(() => $('#fName', el).focus(), 50);
@@ -277,7 +277,7 @@
     $('#rGen', el).onclick = () => { $('#rPw', el).value = genPassword(); };
     $('#rCancel', el).onclick = m.close;
     $('#rSave', el).onclick = async () => {
-      try { const r = await api(`/tenants/${t.id}/password`, { method: 'POST', body: { password: $('#rPw', el).value } }); showCredentials(m, t, r.password, 'Password reset'); }
+      try { const r = await api(`/tenants/${t.id}/password`, { method: 'POST', body: { password: $('#rPw', el).value } }); showCredentials(m, { ...t, admin_url: r.admin_url || t.admin_url }, r.password, 'Password reset'); }
       catch (e) { $('#rErr', el).textContent = e.message; }
     };
   }
@@ -337,5 +337,6 @@
   }
 
   // ---------------------------------------------------------------- boot
+  if (location.hostname.endsWith('.genuinedraw.in')) { location.replace('https://genuinedraw.in/super'); return; }
   fetch('/api/super/me').then(r => r.json()).then(d => d.super ? showShell() : showLogin()).catch(showLogin);
 })();

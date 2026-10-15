@@ -33,11 +33,30 @@ function lanIp() {
   return (all.sort((x, y) => rank(x) - rank(y))[0] || {}).address || 'localhost';
 }
 
-// The URL printed inside each QR. The bakery's own setting wins; otherwise use the request host,
-// swapping localhost for the LAN IP so phones on the same Wi-Fi can open it.
+// ---------- addresses ----------
+// genuinedraw.in → Super Admin; <merchant>.genuinedraw.in → that merchant's admin and customer pages.
+// Any other host (the old vercel.app address, localhost) keeps working as before, with every page available.
+const BASE = (process.env.PLATFORM_DOMAIN || 'genuinedraw.in').toLowerCase();
+const RESERVED = new Set(['www', 'admin', 'api', 'app', 'mail', 'email', 'super', 'static', 'assets', 'cdn', 'help', 'support',
+  'blog', 'docs', 'status', 'dev', 'test', 'staging', 'demo', 'm', 'ns1', 'ns2', 'smtp', 'ftp', 'verify', 'winners', 'draw', 'secure']);
+function siteOf(req) {
+  const host = String(req.hostname || '').toLowerCase();
+  if (host === BASE) return { kind: 'platform' };
+  if (host.endsWith('.' + BASE)) {
+    const sub = host.slice(0, -(BASE.length + 1));
+    return !sub.includes('.') && !RESERVED.has(sub) ? { kind: 'merchant', slug: sub } : { kind: 'unknown' };
+  }
+  return { kind: 'legacy' };
+}
+const onPlatformDomain = req => siteOf(req).kind !== 'legacy';
+const platformBase = req => onPlatformDomain(req) ? `https://${BASE}` : `${req.protocol}://${req.get('host')}`;
+
+// The URL printed inside each QR. The merchant's own setting wins; on the Genuine Draw domain it is the merchant's
+// subdomain; otherwise the request host, swapping localhost for the LAN IP so phones on the same Wi-Fi can open it.
 function publicUrl(req, tenant, ignoreSetting = false) {
   const set = ignoreSetting ? '' : String(tenant?.public_url || '').trim().replace(/\/+$/, '');
   if (set) return set;
+  if (tenant && onPlatformDomain(req)) return `https://${tenant.slug}.${BASE}`;
   const host = req.get('host') || `localhost:${PORT}`;
   if (/^(localhost|127\.0\.0\.1|\[::1\])/.test(host)) return `http://${lanIp()}:${host.split(':').pop()}`;
   return `${req.protocol}://${host}`;
@@ -64,8 +83,12 @@ function cookies(req) {
     const i = c.indexOf('='); return [c.slice(0, i).trim(), decodeURIComponent(c.slice(i + 1))];
   }));
 }
-const cookie = (req, name, value, maxAge) =>
-  `${name}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${req.secure ? '; Secure' : ''}`;
+// Host-only by default. The Super Admin cookie is shared with merchant subdomains (so "Open as merchant" can
+// check it there): pass shared=true for that.
+const cookie = (req, name, value, maxAge, shared = false) =>
+  `${name}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${req.secure ? '; Secure' : ''}${shared && onPlatformDomain(req) ? '; Domain=.' + BASE : ''}`;
+// The merchant's own admin address (its subdomain on the Genuine Draw domain).
+const adminUrl = (req, t) => (onPlatformDomain(req) ? `https://${t.slug}.${BASE}` : `${req.protocol}://${req.get('host')}`) + '/admin';
 
 // ---------- bakeries ----------
 const isActive = t => t.status === 'active' && (!t.plan_expires_on || t.plan_expires_on >= today());
@@ -93,6 +116,7 @@ function cleanTenant(body, fields) {
       case 'slug':
         v = String(v || '').trim().toLowerCase();
         if (!/^[a-z0-9][a-z0-9-]{1,39}$/.test(v)) throw fail(400, 'Username: 2–40 characters, lowercase letters, numbers and dashes only');
+        if (RESERVED.has(v)) throw fail(400, `"${v}" is reserved. Please choose another username.`);
         break;
       case 'status': if (!['active', 'suspended'].includes(v)) throw fail(400, 'Unknown status'); break;
       case 'plan_expires_on': v = /^\d{4}-\d{2}-\d{2}$/.test(v || '') ? v : null; break;
@@ -184,6 +208,8 @@ app.get('/api/c/:code', a(async (req, res) => {
     one('SELECT * FROM batches WHERE id = $1', [c.batch_id]),
     one('SELECT * FROM tenants WHERE id = $1', [c.tenant_id]),
   ]);
+  const site = siteOf(req);
+  if (site.kind === 'merchant' && site.slug !== tenant.slug) return res.json({ state: 'moved', url: `${publicUrl(req, tenant)}/c/${c.code}` });
   const base = {
     code: c.code, serial: c.serial, brand: brandOf(tenant),
     campaign: { name: batch.name, headline: batch.headline, subline: batch.subline, theme: batch.theme, expires_on: batch.expires_on },
@@ -217,6 +243,8 @@ app.post('/api/c/:code/claim', a(async (req, res) => {
     const c = await one('SELECT * FROM coupons WHERE code = $1 FOR UPDATE', [code], t);
     if (!c) throw fail(404, 'This coupon is not valid.');
     const tenant = await one('SELECT * FROM tenants WHERE id = $1', [c.tenant_id], t);
+    const site = siteOf(req);
+    if (site.kind === 'merchant' && site.slug !== tenant.slug) throw fail(404, 'This coupon is not valid.');
     if (!isActive(tenant)) throw fail(403, 'This offer is paused right now. Please try again later.');
     if (c.status !== 'new') throw fail(409, 'This coupon has already been claimed.');
     const batch = await one('SELECT * FROM batches WHERE id = $1', [c.batch_id], t);
@@ -249,10 +277,13 @@ app.post('/api/c/:code/claim', a(async (req, res) => {
 // ---------------------------------------------------------------- merchant admin API
 // A session is the merchant owner, one of its staff (manager / counter), or the Super Admin looking in.
 async function currentSession(req) {
+  const site = siteOf(req);
+  if (site.kind === 'platform' || site.kind === 'unknown') return null;   // merchant pages live on merchant subdomains
   const p = await readToken(cookies(req).nv_admin);
   if (!p || !p.t) return null;
   const t = await one('SELECT * FROM tenants WHERE id = $1', [p.t]);
   if (!t || t.session_version !== p.v) return null;
+  if (site.kind === 'merchant' && site.slug !== t.slug) return null;
   if (p.imp) {                                       // impersonation needs a live super-admin session too
     const s = await readToken(cookies(req).nv_super);
     if (!s || String(s.v) !== await getSetting('super_session_version', '1')) return null;
@@ -269,6 +300,24 @@ async function currentSession(req) {
 const log = (req, action, entity, entityId, details = {}, client) =>
   audit({ tenantId: req.tenant?.id ?? null, actor: req.actor, action, entity, entityId, details, ip: req.ip }, client);
 
+// Branding for the login page of a merchant subdomain.
+app.get('/api/shop', a(async (req, res) => {
+  const site = siteOf(req);
+  if (site.kind === 'platform') return res.json({ platform: true });
+  if (site.kind !== 'merchant') return res.json({ exists: site.kind === 'legacy' });
+  const t = await one('SELECT * FROM tenants WHERE slug = $1', [site.slug]);
+  res.json(t ? { exists: true, active: isActive(t), name: t.name, logo: t.logo, color: t.color, slug: t.slug } : { exists: false });
+}));
+// "Find my shop": a merchant (or staff) username → that shop's admin address.
+app.get('/api/find-shop', a(async (req, res) => {
+  if (throttle('find:' + req.ip, 30)) throw fail(429, 'Too many attempts. Please wait a few minutes.');
+  const u = String(req.query.username || '').trim().toLowerCase();
+  const t = await one(`SELECT t.* FROM tenants t WHERE t.slug = $1
+    UNION SELECT t.* FROM tenants t JOIN staff s ON s.tenant_id = t.id WHERE s.username = $1 LIMIT 1`, [u]);
+  if (!t) throw fail(404, 'No shop found for that username');
+  res.json({ url: adminUrl(req, t), name: t.name });
+}));
+
 app.post('/api/admin/login', a(async (req, res) => {
   const username = String(req.body.username || '').trim().toLowerCase();
   if (throttle('login:' + req.ip, 20) || throttle('login-user:' + username, 10)) throw fail(429, 'Too many attempts. Please wait a few minutes.');
@@ -280,6 +329,9 @@ app.post('/api/admin/login', a(async (req, res) => {
     st = await one('SELECT * FROM staff WHERE username = $1', [username]);
     if (st) t = await one('SELECT * FROM tenants WHERE id = $1', [st.tenant_id]);
   }
+  const site = siteOf(req);
+  if (site.kind === 'platform') throw fail(400, 'Please sign in at your shop address, e.g. yourshop.' + BASE);
+  if (site.kind === 'merchant' && t && t.slug !== site.slug) t = null;   // only this shop's owner and staff
   if (!t || !await verifyPassword(password, (st || t).password_hash)) throw fail(401, 'Wrong username or password');
   if (st && !st.active) throw fail(403, 'This login has been switched off. Please ask your shop owner.');
   if (t.status !== 'active') throw fail(403, `This account is paused. Please contact ${PLATFORM}.`);
@@ -719,6 +771,11 @@ const SUPER = { type: 'super', id: null, name: 'Super Admin' };
 const slog = (req, tenantId, action, entity, entityId, details = {}, client) =>
   audit({ tenantId, actor: SUPER, action, entity, entityId, details, ip: req.ip }, client);
 
+app.use('/api/super', (req, res, next) => {
+  const k = siteOf(req).kind;
+  if (k === 'merchant' || k === 'unknown') return res.status(404).json({ error: 'Not found' });
+  next();
+});
 async function isSuper(req) {
   const p = await readToken(cookies(req).nv_super);
   return !!(p && p.s && String(p.v) === await getSetting('super_session_version', '1'));
@@ -728,11 +785,11 @@ app.post('/api/super/login', a(async (req, res) => {
   if (!await verifyPassword(String(req.body.password || ''), await getSetting('super_password_hash'))) throw fail(401, 'Wrong password');
   const v = await getSetting('super_session_version', '1');
   await slog(req, null, 'super.login', 'platform', '');
-  res.set('Set-Cookie', cookie(req, 'nv_super', await makeToken({ s: 1, v, exp: Date.now() + 12 * 3600000 }), 12 * 3600));
+  res.set('Set-Cookie', cookie(req, 'nv_super', await makeToken({ s: 1, v, exp: Date.now() + 12 * 3600000 }), 12 * 3600, true));
   res.json({ ok: true });
 }));
 app.post('/api/super/logout', (req, res) => {
-  res.set('Set-Cookie', ['nv_super=; Path=/; Max-Age=0', 'nv_admin=; Path=/; Max-Age=0']).json({ ok: true });
+  res.set('Set-Cookie', [cookie(req, 'nv_super', '', 0, true), 'nv_super=; Path=/; Max-Age=0', 'nv_admin=; Path=/; Max-Age=0']).json({ ok: true });
 });
 app.get('/api/super/me', a(async (req, res) => res.json({ super: await isSuper(req) })));
 
@@ -757,14 +814,14 @@ app.get('/api/super/overview', a(async (req, res) => {
         MAX(claimed_at) AS last_claim_at
       FROM coupons GROUP BY tenant_id) s ON s.tenant_id = t.id
     ORDER BY t.created_at DESC`);
-  for (const t of tenants) t.active = isActive(t);
+  for (const t of tenants) { t.active = isActive(t); t.admin_url = adminUrl(req, t); }
   res.json({ tenants, today: today() });
 }));
 app.get('/api/super/tenants/:id', a(async (req, res) => {
   const t = await one('SELECT * FROM tenants WHERE id = $1', [int(req.params.id)]);
   if (!t) throw fail(404, 'Merchant not found');
   delete t.password_hash;
-  res.json(t);
+  res.json({ ...t, admin_url: adminUrl(req, t) });
 }));
 app.post('/api/super/tenants', a(async (req, res) => {
   const fields = cleanTenant(req.body, [...PROFILE_FIELDS, ...ACCOUNT_FIELDS]);
@@ -789,7 +846,7 @@ app.post('/api/super/tenants', a(async (req, res) => {
     await slog(req, row.id, 'merchant.created', 'merchant', row.id, { name: fields.name, username: fields.slug, max_coupons: fields.max_coupons ?? null, plan_expires_on: fields.plan_expires_on ?? null }, c);
     return row.id;
   });
-  res.json({ id, password });
+  res.json({ id, password, admin_url: adminUrl(req, fields) });
 }));
 app.put('/api/super/tenants/:id', a(async (req, res) => {
   const id = int(req.params.id);
@@ -815,14 +872,20 @@ app.post('/api/super/tenants/:id/password', a(async (req, res) => {
     [int(req.params.id), await hashPassword(password)]);
   if (!r.length) throw fail(404, 'Merchant not found');
   await slog(req, int(req.params.id), 'merchant.password_reset', 'merchant', int(req.params.id));
-  res.json({ password });
+  const t = await one('SELECT slug FROM tenants WHERE id = $1', [int(req.params.id)]);
+  res.json({ password, admin_url: adminUrl(req, t) });
 }));
 app.post('/api/super/tenants/:id/impersonate', a(async (req, res) => {
   const t = await one('SELECT id, session_version FROM tenants WHERE id = $1', [int(req.params.id)]);
   if (!t) throw fail(404, 'Merchant not found');
+  t.slug = (await one('SELECT slug FROM tenants WHERE id = $1', [t.id])).slug;
   await slog(req, t.id, 'merchant.opened_by_super', 'merchant', t.id);
+  if (onPlatformDomain(req)) {
+    const enter = await makeToken({ enter: 1, t: t.id, v: t.session_version, exp: Date.now() + 2 * 60000 });
+    return res.json({ ok: true, url: `${adminUrl(req, t)}/enter?token=${encodeURIComponent(enter)}` });
+  }
   res.set('Set-Cookie', cookie(req, 'nv_admin', await makeToken({ t: t.id, v: t.session_version, imp: 1, exp: Date.now() + 2 * 3600000 }), 2 * 3600));
-  res.json({ ok: true });
+  res.json({ ok: true, url: '/admin' });
 }));
 app.delete('/api/super/tenants/:id', a(async (req, res) => {
   const t = await one('SELECT slug, name FROM tenants WHERE id = $1', [int(req.params.id)]);
@@ -843,7 +906,7 @@ app.put('/api/super/password', a(async (req, res) => {
   await setSetting('super_password_hash', await hashPassword(pw));
   await setSetting('super_session_version', v);
   await slog(req, null, 'super.password_changed', 'platform', '');
-  res.set('Set-Cookie', cookie(req, 'nv_super', await makeToken({ s: 1, v, exp: Date.now() + 12 * 3600000 }), 12 * 3600));
+  res.set('Set-Cookie', cookie(req, 'nv_super', await makeToken({ s: 1, v, exp: Date.now() + 12 * 3600000 }), 12 * 3600, true));
   res.json({ ok: true });
 }));
 
@@ -859,13 +922,30 @@ app.get('/api/super/activity', a(async (req, res) => {
 app.get('/api/super/activity/verify', a(async (req, res) => res.json(await verifyAudit())));
 
 // ---------------------------------------------------------------- pages
+// Address-aware pages come first; express.static would otherwise answer /admin and /super on its own.
 const pub = path.join(__dirname, 'public');
-app.use(express.static(pub, { extensions: ['html'], maxAge: 0 }));
-app.get('/', (req, res) => res.redirect('/admin'));
-app.get('/admin', (req, res) => res.sendFile(path.join(pub, 'admin', 'index.html')));
+app.get('/', (req, res) => res.redirect(siteOf(req).kind === 'platform' ? '/super' : '/admin'));
+app.get(['/admin', '/admin/'], (req, res) => res.sendFile(path.join(pub, siteOf(req).kind === 'platform' ? 'find-shop.html' : 'admin/index.html')));
+// Super Admin "Open as merchant" lands here on the merchant's subdomain.
+app.get('/admin/enter', a(async (req, res) => {
+  const p = await readToken(req.query.token);
+  const s = await readToken(cookies(req).nv_super);
+  const t = p && p.enter ? await one('SELECT id, slug, session_version FROM tenants WHERE id = $1', [p.t]) : null;
+  const site = siteOf(req);
+  if (!t || !s || String(s.v) !== await getSetting('super_session_version', '1') || (site.kind === 'merchant' && site.slug !== t.slug)) {
+    return res.status(403).send('This link has expired. Please use "Open as merchant" again from Super Admin.');
+  }
+  res.set('Set-Cookie', cookie(req, 'nv_admin', await makeToken({ t: t.id, v: t.session_version, imp: 1, exp: Date.now() + 2 * 3600000 }), 2 * 3600));
+  res.redirect('/admin');
+}));
 app.get('/admin/print/:id', (req, res) => res.sendFile(path.join(pub, 'admin', 'print.html')));
-app.get('/super', (req, res) => res.sendFile(path.join(pub, 'super', 'index.html')));
+app.get(['/super', '/super/'], (req, res) => {
+  const k = siteOf(req).kind;
+  if (k === 'merchant' || k === 'unknown') return res.redirect(`https://${BASE}/super`);
+  res.sendFile(path.join(pub, 'super', 'index.html'));
+});
 app.get('/c/:code', (req, res) => res.sendFile(path.join(pub, 'c', 'index.html')));
+app.use(express.static(pub, { extensions: ['html'], maxAge: 0 }));
 
 // Errors: known ones (fail()) go to the user as-is; anything else is logged and hidden.
 app.use((err, req, res, next) => {

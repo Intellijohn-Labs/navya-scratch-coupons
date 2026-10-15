@@ -51,7 +51,20 @@
   }
 
   // ---------------------------------------------------------------- auth
-  function showLogin() { $('#login').classList.remove('hidden'); $('#shell').classList.add('hidden'); }
+  async function showLogin() {
+    $('#login').classList.remove('hidden'); $('#shell').classList.add('hidden');
+    const shop = await (await fetch('/api/shop')).json().catch(() => ({}));
+    const card = $('#loginForm');
+    if (shop.exists === false) {
+      card.querySelector('h1').textContent = 'No shop here';
+      card.querySelector('p').innerHTML = 'There is no Genuine Draw shop at this address. Check the link you were given.';
+      card.querySelectorAll('input, button').forEach(el => { el.hidden = true; });
+    } else if (shop.name) {
+      card.querySelector('h1').textContent = shop.name;
+      card.querySelector('p').textContent = 'Shop admin · sign in to continue';
+      if (shop.logo) { const img = card.querySelector('.login-icon'); img.src = shop.logo; img.classList.add('shop-logo'); }
+    }
+  }
   async function showShell() {
     ME = await (await fetch('/api/admin/me')).json();
     if (!ME.admin) return showLogin();
@@ -921,5 +934,6 @@
   }
 
   // ---------------------------------------------------------------- boot
-  showShell();
+  if (location.hostname === 'genuinedraw.in') location.replace('/find-shop'); // merchants sign in on their own subdomain
+  else showShell();
 })();

@@ -75,6 +75,7 @@
     bind('code', fmtCode(data.code));
 
     switch (data.state) {
+      case 'moved': location.replace(data.url); return;
       case 'invalid': return status('🔍', 'Coupon not found', 'This QR code is not a valid coupon. Please check and scan again.');
       case 'paused': return status('⏸️', 'This offer is paused', `${brand.name}'s Scratch & Win is taking a short break. Please keep your coupon and try again later.`);
       case 'void': return status('🚫', 'Coupon cancelled', 'This coupon is no longer active. Please ask our staff for a new one.');

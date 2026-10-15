@@ -323,3 +323,5 @@ td small { color: var(--muted); display: block; }
   .side { scrollbar-width: none; }
   .side::-webkit-scrollbar { display: none; }
 }
+
+.login-icon.shop-logo { height: 70px; max-width: 220px; object-fit: contain; border-radius: 0; }
