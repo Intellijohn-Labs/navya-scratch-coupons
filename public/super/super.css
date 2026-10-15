@@ -35,3 +35,4 @@ body.super .btn.primary { background: linear-gradient(135deg, #2A3F6E, #14213D);
   .bk-actions .btn { flex: 1; }
 }
 @media (max-width: 420px) { .bk-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+body.super .login { background: radial-gradient(circle at 80% 0%, #C9D6F5, transparent 45%), radial-gradient(circle at 0% 100%, #F6E3B4, transparent 45%), #F3F5FA; }

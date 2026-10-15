@@ -1,16 +1,44 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#22345C"/><stop offset="1" stop-color="#0F1A33"/>
+      <stop offset="0" stop-color="#2B3F78"/><stop offset=".55" stop-color="#16244A"/><stop offset="1" stop-color="#0A1230"/>
     </linearGradient>
-    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#F7CF6B"/><stop offset="1" stop-color="#E0A33A"/>
+    <linearGradient id="face" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFF1B8"/><stop offset=".35" stop-color="#F9CF5C"/><stop offset=".7" stop-color="#E5A12C"/><stop offset="1" stop-color="#C9801A"/>
+    </linearGradient>
+    <linearGradient id="side" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#A86410"/><stop offset="1" stop-color="#6E3C06"/>
+    </linearGradient>
+    <linearGradient id="inner" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#22397A"/><stop offset="1" stop-color="#0E1A3D"/>
+    </linearGradient>
+    <linearGradient id="tick" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFF6D2"/><stop offset=".5" stop-color="#FAD46A"/><stop offset="1" stop-color="#E3A230"/>
+    </linearGradient>
+    <radialGradient id="glow" cx=".5" cy=".42" r=".55">
+      <stop offset="0" stop-color="#4C6BC4" stop-opacity=".55"/><stop offset="1" stop-color="#4C6BC4" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="gloss" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity=".55"/><stop offset="1" stop-color="#fff" stop-opacity="0"/>
     </linearGradient>
   </defs>
-  <rect width="64" height="64" rx="16" fill="url(#bg)"/>
-  <!-- shield -->
-  <path d="M32 9l17 6v13c0 12-7.4 21.6-17 26-9.6-4.4-17-14-17-26V15z" fill="url(#gold)"/>
-  <path d="M32 14l12.5 4.4v9.8c0 9.2-5.4 16.8-12.5 20.6-7.1-3.8-12.5-11.4-12.5-20.6v-9.8z" fill="#142347"/>
-  <!-- tick -->
-  <path d="M25.5 31.5l4.6 4.6 9-9.4" fill="none" stroke="#F7CF6B" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect width="256" height="256" rx="58" fill="url(#bg)"/>
+  <rect width="256" height="256" rx="58" fill="url(#glow)"/>
+  <!-- floor shadow -->
+  <ellipse cx="128" cy="222" rx="66" ry="10" fill="#050A1C" opacity=".55"/>
+  <!-- extruded side (depth) -->
+  <path d="M128 44l72 25v52c0 46-30 83-72 101-42-18-72-55-72-101V69z" transform="translate(0 10)" fill="url(#side)"/>
+  <!-- gold face -->
+  <path d="M128 44l72 25v52c0 46-30 83-72 101-42-18-72-55-72-101V69z" fill="url(#face)"/>
+  <!-- bevel: inner navy panel -->
+  <path d="M128 62l55 19v40c0 36-23 65-55 80-32-15-55-44-55-80V81z" fill="url(#inner)"/>
+  <!-- inner rim highlight -->
+  <path d="M128 62l55 19v40c0 36-23 65-55 80-32-15-55-44-55-80V81z" fill="none" stroke="#FFE7A0" stroke-opacity=".55" stroke-width="2"/>
+  <!-- tick shadow + tick -->
+  <path d="M98 128l22 22 42-46" fill="none" stroke="#050A1C" stroke-opacity=".5" stroke-width="20" stroke-linecap="round" stroke-linejoin="round" transform="translate(0 6)"/>
+  <path d="M98 128l22 22 42-46" fill="none" stroke="url(#tick)" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- gloss on the face -->
+  <path d="M128 50l64 22v20c-40-10-86-8-128 6V72z" fill="url(#gloss)"/>
+  <!-- sparkle -->
+  <path d="M196 52l4 10 10 4-10 4-4 10-4-10-10-4 10-4z" fill="#FFF3C4"/>
 </svg>
