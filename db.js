@@ -87,10 +87,10 @@ const utcNow = () => new Date().toISOString().replace('T', ' ').slice(0, 19);
 const daysFromNow = n => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
 
 // Inserts all coupons in one round trip; regenerates the (very rare) codes that collide.
-async function createBatch({ tenantId, name, headline, subline, theme, expires_on, count, sample = 0 }, client) {
+async function createBatch({ tenantId, campaignId = null, name, headline, subline, theme, expires_on, count, sample = 0 }, client) {
   const run = async c => {
-    const { id } = await one(`INSERT INTO batches(tenant_id, name, headline, subline, theme, expires_on, count, sample)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`, [tenantId, name, headline, subline, theme, expires_on || null, count, sample], c);
+    const { id } = await one(`INSERT INTO batches(tenant_id, campaign_id, name, headline, subline, theme, expires_on, count, sample)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`, [tenantId, campaignId, name, headline, subline, theme, expires_on || null, count, sample], c);
     let pending = Array.from({ length: count }, (_, i) => i + 1);
     while (pending.length) {
       const codes = pending.map(() => randomCode(8));
@@ -205,6 +205,12 @@ async function init() {
     await c.query('SELECT pg_advisory_xact_lock(1984)'); // only one instance migrates at a time
     await c.query(schema);
     await migrateSingleBakery(c);
+    // Batches made before campaigns existed each become their own Instant Win campaign.
+    for (const b of await q('SELECT id, tenant_id, name, expires_on, created_at FROM batches WHERE campaign_id IS NULL', [], c)) {
+      const camp = await one(`INSERT INTO campaigns(tenant_id, name, type, starts_on, ends_on) VALUES($1, $2, 'instant', $3, $4) RETURNING id`,
+        [b.tenant_id, b.name, b.created_at.slice(0, 10), b.expires_on], c);
+      await q('UPDATE batches SET campaign_id = $1 WHERE id = $2', [camp.id, b.id], c);
+    }
     // Every merchant has at least one outlet.
     await q(`INSERT INTO outlets(tenant_id, name, address, maps_url)
       SELECT t.id, 'Main shop', t.address, t.maps_url FROM tenants t

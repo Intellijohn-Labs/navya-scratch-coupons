@@ -163,3 +163,99 @@ CREATE TABLE IF NOT EXISTS audit_log (
 );
 CREATE INDEX IF NOT EXISTS idx_audit_tenant ON audit_log(tenant_id, id DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_log(entity, entity_id);
+
+-- ---------------------------------------------------------------- Phase 1: self sign-up, campaigns
+
+-- Merchants can now sign themselves up and wait for approval.
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'tenants_status_check2') THEN
+    ALTER TABLE tenants DROP CONSTRAINT IF EXISTS tenants_status_check;
+    ALTER TABLE tenants ADD CONSTRAINT tenants_status_check2 CHECK (status IN ('active', 'suspended', 'pending', 'rejected'));
+  END IF;
+END $$;
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS owner_name     TEXT NOT NULL DEFAULT '';
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS email          TEXT NOT NULL DEFAULT '';
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS gst_number     TEXT NOT NULL DEFAULT '';
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS business_type  TEXT NOT NULL DEFAULT '';
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS signup_source  TEXT NOT NULL DEFAULT 'super';    -- super | self
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS decided_at     TIMESTAMP;                         -- approved / rejected
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS reject_reason  TEXT NOT NULL DEFAULT '';
+
+-- A campaign groups coupon batches. Instant Win = scratch and win now; Lucky Draw = collect entries, draw later.
+CREATE TABLE IF NOT EXISTS campaigns (
+  id           SERIAL PRIMARY KEY,
+  tenant_id    INTEGER  NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name         TEXT     NOT NULL,
+  type         TEXT     NOT NULL DEFAULT 'instant' CHECK (type IN ('instant', 'draw')),
+  description  TEXT     NOT NULL DEFAULT '',
+  terms        TEXT     NOT NULL DEFAULT '',
+  starts_on    DATE,
+  ends_on      DATE,
+  draw_on      DATE,                                    -- Lucky Draw only
+  status       TEXT     NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'paused', 'drawn')),
+  created_at   TIMESTAMP NOT NULL DEFAULT (now() AT TIME ZONE 'utc')
+);
+CREATE INDEX IF NOT EXISTS idx_campaigns_tenant ON campaigns(tenant_id);
+ALTER TABLE batches ADD COLUMN IF NOT EXISTS campaign_id INTEGER REFERENCES campaigns(id) ON DELETE CASCADE;
+CREATE INDEX IF NOT EXISTS idx_batches_campaign ON batches(campaign_id);
+
+-- Prizes announced for a Lucky Draw (rank 1 = first prize).
+CREATE TABLE IF NOT EXISTS campaign_prizes (
+  id           SERIAL PRIMARY KEY,
+  campaign_id  INTEGER  NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+  rank         INTEGER  NOT NULL DEFAULT 1,
+  name         TEXT     NOT NULL,
+  description  TEXT     NOT NULL DEFAULT '',
+  image        TEXT     NOT NULL DEFAULT '',
+  quantity     INTEGER  NOT NULL DEFAULT 1 CHECK (quantity >= 1)
+);
+CREATE INDEX IF NOT EXISTS idx_prizes_campaign ON campaign_prizes(campaign_id);
+
+-- ---------------------------------------------------------------- Phase 2: customers, complaints
+
+-- One-time WhatsApp codes for the customer portal.
+CREATE TABLE IF NOT EXISTS otp_codes (
+  id          SERIAL PRIMARY KEY,
+  phone       TEXT     NOT NULL,
+  code_hash   TEXT     NOT NULL,
+  attempts    INTEGER  NOT NULL DEFAULT 0,
+  expires_at  TIMESTAMP NOT NULL,
+  used        SMALLINT NOT NULL DEFAULT 0,
+  created_at  TIMESTAMP NOT NULL DEFAULT (now() AT TIME ZONE 'utc')
+);
+CREATE INDEX IF NOT EXISTS idx_otp_phone ON otp_codes(phone, id DESC);
+
+-- Complaint tickets. A ticket belongs to the merchant of the coupon (or, without a coupon, the chosen merchant).
+CREATE TABLE IF NOT EXISTS complaints (
+  id             SERIAL PRIMARY KEY,
+  ticket_no      TEXT     NOT NULL UNIQUE,
+  tenant_id      INTEGER  REFERENCES tenants(id) ON DELETE CASCADE,
+  coupon_id      INTEGER  REFERENCES coupons(id) ON DELETE SET NULL,
+  coupon_code    TEXT     NOT NULL DEFAULT '',
+  outlet_id      INTEGER  REFERENCES outlets(id) ON DELETE SET NULL,
+  phone          TEXT     NOT NULL,
+  customer_name  TEXT     NOT NULL DEFAULT '',
+  category       TEXT     NOT NULL CHECK (category IN ('not_received', 'prize_not_given', 'result_dispute', 'invalid_coupon', 'other')),
+  description    TEXT     NOT NULL,
+  photo          TEXT     NOT NULL DEFAULT '',
+  incident_at    TIMESTAMP,
+  status         TEXT     NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'in_progress', 'resolved', 'rejected')),
+  escalated      SMALLINT NOT NULL DEFAULT 0,
+  escalated_at   TIMESTAMP,
+  escalation_reason TEXT  NOT NULL DEFAULT '',
+  resolved_at    TIMESTAMP,
+  created_at     TIMESTAMP NOT NULL DEFAULT (now() AT TIME ZONE 'utc'),
+  updated_at     TIMESTAMP NOT NULL DEFAULT (now() AT TIME ZONE 'utc')
+);
+CREATE INDEX IF NOT EXISTS idx_complaints_tenant ON complaints(tenant_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_complaints_phone  ON complaints(phone, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS complaint_messages (
+  id            SERIAL PRIMARY KEY,
+  complaint_id  INTEGER  NOT NULL REFERENCES complaints(id) ON DELETE CASCADE,
+  author_type   TEXT     NOT NULL CHECK (author_type IN ('customer', 'merchant', 'super', 'system')),
+  author_name   TEXT     NOT NULL DEFAULT '',
+  body          TEXT     NOT NULL,
+  created_at    TIMESTAMP NOT NULL DEFAULT (now() AT TIME ZONE 'utc')
+);
+CREATE INDEX IF NOT EXISTS idx_cmsg_complaint ON complaint_messages(complaint_id, id);

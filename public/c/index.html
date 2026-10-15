@@ -45,6 +45,13 @@
       <div class="chip">Coupon <b data-bind="code">····-····</b></div>
     </div>
 
+    <div class="card draw-info" id="drawInfo" hidden>
+      <div class="di-top"><span class="di-badge">🎟️ Lucky Draw</span><span class="di-date">Draw on <b id="drawDate"></b></span></div>
+      <p class="muted" id="drawDesc"></p>
+      <div class="prizes" id="drawPrizes"></div>
+      <p class="fine" id="drawWindow"></p>
+    </div>
+
     <form class="card form" id="claimForm" novalidate>
       <h2>Tell us a little about you</h2>
       <p class="muted">So we know who to hand your gift to at the counter.</p>
@@ -132,6 +139,36 @@
     </div>
   </section>
 
+  <!-- Lucky Draw entry -->
+  <section class="screen" id="s-entry">
+    <div class="entry-wrap">
+      <div class="entry-burst" aria-hidden="true">🎉</div>
+      <h1 class="headline">You're in the draw<span data-bind="commaName"></span>!</h1>
+      <p class="subline">Your entry is saved and can't be changed by anyone.</p>
+      <div class="entry-ticket">
+        <div class="et-left">
+          <small>Entry number</small>
+          <b data-bind="code"></b>
+          <small id="entryCampaign"></small>
+        </div>
+        <div class="et-right"><small>Draw on</small><b id="entryDraw"></b></div>
+      </div>
+      <div class="card">
+        <h3 style="margin:0 0 10px">Prizes</h3>
+        <div class="prizes" id="entryPrizes"></div>
+        <ol class="steps">
+          <li><b>Keep</b> your coupon safe</li>
+          <li><b>Winners</b> are picked on the draw date</li>
+          <li><b>We'll tell</b> you on WhatsApp if you win</li>
+        </ol>
+        <div class="actions">
+          <a class="btn wa" id="entryShare" target="_blank" rel="noopener">Share with friends</a>
+          <a class="btn ghost" id="entryVerify">🔎 Check my entry anytime</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <!-- Status screens: claimed / invalid / expired -->
   <section class="screen" id="s-status">
     <div class="card status">
@@ -146,6 +183,7 @@
   <footer class="foot">
     <span id="footAddress"></span>
     <span class="since" id="footLine"></span>
+    <span class="help-links" id="helpLinks" hidden><a id="helpLink">Need help? Raise a complaint</a> · <a id="verifyLink">Verify this coupon</a></span>
     <a class="seal" href="https://genuinedraw.in" target="_blank" rel="noopener"><img src="/img/platform-icon.svg" alt=""> Verified by <b>Genuine Draw</b> · every coupon is single-use and logged</a>
   </footer>
 </main>

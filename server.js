@@ -199,6 +199,32 @@ app.get('/qr.svg', a(async (req, res) => {
 app.use('/api', a(async (req, res, next) => { await ready(); next(); }));
 
 // ---------------------------------------------------------------- public (customer) API
+// Campaign facts the customer page needs (prizes only for Lucky Draws).
+async function campaignView(batch, client) {
+  const camp = batch.campaign_id ? await one('SELECT * FROM campaigns WHERE id = $1', [batch.campaign_id], client) : null;
+  const prizes = camp && camp.type === 'draw'
+    ? await q('SELECT rank, name, description, image, quantity FROM campaign_prizes WHERE campaign_id = $1 ORDER BY rank, id', [camp.id], client) : [];
+  return {
+    camp,
+    view: {
+      name: camp ? camp.name : batch.name, type: camp ? camp.type : 'instant', headline: batch.headline, subline: batch.subline,
+      theme: batch.theme, expires_on: batch.expires_on, starts_on: camp?.starts_on || null, ends_on: camp?.ends_on || null,
+      draw_on: camp?.draw_on || null, description: camp?.description || '', terms: camp?.terms || '', status: camp?.status || 'active', prizes,
+    },
+  };
+}
+// Why a coupon can't be played right now (or null if it can).
+function campaignBlock(batch, camp) {
+  const d = today();
+  if (batch.expires_on && batch.expires_on < d) return ['expired', 'Sorry, this coupon has expired.'];
+  if (!camp) return null;
+  if (camp.status === 'paused') return ['campaign_paused', 'This campaign is paused right now. Please try again later.'];
+  if (camp.status === 'drawn') return ['campaign_ended', 'The draw for this campaign has already taken place.'];
+  if (camp.starts_on && camp.starts_on > d) return ['not_started', `This campaign starts on ${camp.starts_on}.`];
+  if (camp.ends_on && camp.ends_on < d) return ['campaign_ended', 'This campaign has ended.'];
+  return null;
+}
+
 app.get('/api/c/:code', a(async (req, res) => {
   const code = String(req.params.code).toUpperCase().replace(/[^A-Z0-9]/g, '');
   const c = await one(`UPDATE coupons SET scans = scans + 1, first_scan_at = COALESCE(first_scan_at, $2)
@@ -210,10 +236,8 @@ app.get('/api/c/:code', a(async (req, res) => {
   ]);
   const site = siteOf(req);
   if (site.kind === 'merchant' && site.slug !== tenant.slug) return res.json({ state: 'moved', url: `${publicUrl(req, tenant)}/c/${c.code}` });
-  const base = {
-    code: c.code, serial: c.serial, brand: brandOf(tenant),
-    campaign: { name: batch.name, headline: batch.headline, subline: batch.subline, theme: batch.theme, expires_on: batch.expires_on },
-  };
+  const { camp, view } = await campaignView(batch);
+  const base = { code: c.code, serial: c.serial, brand: brandOf(tenant), campaign: view, help_url: `${platformBase(req)}/my?coupon=${c.code}` };
   const token = String(req.get('x-claim-token') || '');
   if (c.status !== 'new' && c.status !== 'void' && token && c.claim_token && token === c.claim_token) {
     const gift = c.gift_id ? await one('SELECT * FROM gifts WHERE id = $1', [c.gift_id]) : null;
@@ -222,10 +246,12 @@ app.get('/api/c/:code', a(async (req, res) => {
   if (!isActive(tenant)) return res.json({ ...base, state: 'paused' });
   if (c.status === 'void') return res.json({ ...base, state: 'void' });
   if (c.status === 'new') {
-    if (batch.expires_on && batch.expires_on < today()) return res.json({ ...base, state: 'expired' });
+    const block = campaignBlock(batch, camp);
+    if (block) return res.json({ ...base, state: block[0] === 'expired' ? 'expired' : block[0], message: block[1] });
     return res.json({ ...base, state: 'new' });
   }
-  res.json({ ...base, state: 'claimed', claimed_by: maskName(c.customer_name), phone: maskPhone(c.phone), claimed_at: c.claimed_at, gift: c.gift_kind === 'prize' ? { name: c.gift_name } : null });
+  res.json({ ...base, state: 'claimed', claimed_by: maskName(c.customer_name), phone: maskPhone(c.phone), claimed_at: c.claimed_at,
+    gift: c.gift_kind === 'prize' ? { name: c.gift_name } : c.gift_kind === 'entry' ? { name: 'Lucky draw entry' } : null });
 }));
 
 app.post('/api/c/:code/claim', a(async (req, res) => {
@@ -248,13 +274,19 @@ app.post('/api/c/:code/claim', a(async (req, res) => {
     if (!isActive(tenant)) throw fail(403, 'This offer is paused right now. Please try again later.');
     if (c.status !== 'new') throw fail(409, 'This coupon has already been claimed.');
     const batch = await one('SELECT * FROM batches WHERE id = $1', [c.batch_id], t);
-    if (batch.expires_on && batch.expires_on < today()) throw fail(410, 'Sorry, this coupon has expired.');
+    const { camp } = await campaignView(batch, t);
+    const block = campaignBlock(batch, camp);
+    if (block) throw fail(410, block[1]);
     if (tenant.one_per_phone) {
-      const used = await one("SELECT 1 FROM coupons WHERE phone = $1 AND batch_id = $2 AND status IN ('claimed','redeemed')", [phone, c.batch_id], t);
+      const used = await one(`SELECT 1 FROM coupons c2 JOIN batches b2 ON b2.id = c2.batch_id
+        WHERE c2.phone = $1 AND c2.status IN ('claimed','redeemed') AND (b2.id = $2 OR (b2.campaign_id IS NOT NULL AND b2.campaign_id = $3))`,
+      [phone, c.batch_id, batch.campaign_id], t);
       if (used) throw fail(409, 'This mobile number has already played in this campaign. Share the coupon with a friend!');
     }
-    const gift = await pickGift(c.tenant_id, t);
-    const kind = gift ? gift.kind : 'lose';
+    const isDraw = camp && camp.type === 'draw';
+    // Instant Win: pick a gift now. Lucky Draw: record an entry; winners are drawn later.
+    const gift = isDraw ? null : await pickGift(c.tenant_id, t);
+    const kind = isDraw ? 'entry' : gift ? gift.kind : 'lose';
     let reward = null;
     if (kind === 'prize') {
       do { reward = 'NB' + randomCode(6); } while (await one('SELECT 1 FROM coupons WHERE reward_code = $1', [reward], t));
@@ -264,14 +296,296 @@ app.post('/api/c/:code/claim', a(async (req, res) => {
     const fresh = await one(`UPDATE coupons SET status='claimed', gift_id=$1, gift_name=$2, gift_kind=$3, reward_code=$4, reward_expires=$5,
       claim_token=$6, customer_name=$7, phone=$8, area=$9, dob=$10, occasion=$11, consent=$12, device=$13, ip=$14, claimed_at=$15
       WHERE id=$16 RETURNING *`,
-    [gift ? gift.id : null, gift ? gift.name : 'Better luck next time', kind, reward, expires, token,
+    [gift ? gift.id : null, isDraw ? 'Lucky draw entry' : gift ? gift.name : 'Better luck next time', kind, reward, expires, token,
       name, phone, area, dob, occasion, req.body.consent ? 1 : 0, String(req.get('user-agent') || '').slice(0, 200), req.ip, utcNow(), c.id], t);
     if (gift) await q('UPDATE gifts SET stock_used = stock_used + 1 WHERE id = $1', [gift.id], t);
-    await audit({ tenantId: c.tenant_id, actor: { type: 'customer', name: maskName(name) }, action: 'coupon.claimed', entity: 'coupon', entityId: c.code,
-      details: { gift: fresh.gift_name, kind, reward_code: reward, phone: maskPhone(phone), batch_id: c.batch_id }, ip: req.ip }, t);
+    await audit({ tenantId: c.tenant_id, actor: { type: 'customer', name: maskName(name) }, action: isDraw ? 'coupon.entered' : 'coupon.claimed', entity: 'coupon', entityId: c.code,
+      details: { gift: fresh.gift_name, kind, reward_code: reward, phone: maskPhone(phone), batch_id: c.batch_id, campaign_id: batch.campaign_id }, ip: req.ip }, t);
     return { token, reward: rewardPayload(fresh, gift) };
   });
   res.json(out);
+}));
+
+// ---------------------------------------------------------------- WhatsApp notifications
+// Messages go to an n8n / WAAU webhook (WHATSAPP_WEBHOOK_URL) that delivers them on WhatsApp.
+// Without one, nothing is sent; locally the one-time codes are shown on screen instead.
+const WA_HOOK = process.env.WHATSAPP_WEBHOOK_URL || '';
+const OTP_ON_SCREEN = !WA_HOOK && (process.env.OTP_DEV_MODE === '1' || !process.env.VERCEL);
+const cleanPhone = v => String(v || '').replace(/\D/g, '').slice(-10);
+async function notify(phone, type, message, data = {}) {
+  const to = cleanPhone(phone);
+  if (!WA_HOOK || !/^[6-9]\d{9}$/.test(to)) return false;
+  try {
+    const r = await fetch(WA_HOOK, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, signal: AbortSignal.timeout(6000),
+      body: JSON.stringify({ to: '91' + to, type, message, data, platform: PLATFORM }),
+    });
+    return r.ok;
+  } catch (e) { console.error('WhatsApp webhook failed:', e.message); return false; }
+}
+const superPhone = () => process.env.SUPER_WHATSAPP || '';
+
+// ---------------------------------------------------------------- Phase 1: merchant self sign-up
+app.post('/api/register', a(async (req, res) => {
+  const k = siteOf(req).kind;
+  if (k === 'merchant' || k === 'unknown') throw fail(404, 'Not found');
+  if (throttle('register:' + req.ip, 5, 60 * 60000)) throw fail(429, 'Too many sign-ups from this network. Please try again later.');
+  const b = req.body || {};
+  const fields = cleanTenant({ name: b.name, slug: b.username, address: b.address }, ['name', 'slug', 'address']);
+  const owner = String(b.owner_name || '').trim().slice(0, 80);
+  const phone = cleanPhone(b.phone);
+  const email = String(b.email || '').trim().toLowerCase().slice(0, 120);
+  const password = String(b.password || '');
+  if (owner.length < 2) throw fail(400, "Please enter the owner's name");
+  if (!/^[6-9]\d{9}$/.test(phone)) throw fail(400, 'Please enter a valid 10-digit mobile number');
+  if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw fail(400, 'Please enter a valid email address');
+  if (password.length < 8) throw fail(400, 'Password must be at least 8 characters');
+  if (!b.agree) throw fail(400, 'Please accept the terms to continue');
+  if (!await usernameFree(fields.slug)) throw fail(409, 'That username is already taken');
+  const extra = {
+    owner_name: owner, contact_name: owner, contact_phone: phone, whatsapp: phone, email,
+    gst_number: String(b.gst_number || '').trim().toUpperCase().slice(0, 20),
+    business_type: String(b.business_type || '').trim().slice(0, 40),
+    status: 'pending', signup_source: 'self',
+    terms: `One coupon per customer visit. Reward valid at ${fields.name} till the date shown. Not exchangeable for cash.`,
+  };
+  const all = { ...fields, ...extra };
+  const id = await tx(async c => {
+    const keys = Object.keys(all);
+    let row;
+    try {
+      row = await one(`INSERT INTO tenants(${keys.join(', ')}, password_hash) VALUES(${keys.map((_, i) => '$' + (i + 1)).join(', ')}, $${keys.length + 1}) RETURNING id`,
+        [...keys.map(x => all[x]), await hashPassword(password)], c);
+    } catch (e) {
+      if (e.code === '23505') throw fail(409, 'That username is already taken');
+      throw e;
+    }
+    await q("INSERT INTO outlets(tenant_id, name, address) VALUES($1, 'Main shop', $2)", [row.id, fields.address || ''], c);
+    await addStarterGifts(row.id, fields.name, c);
+    await audit({ tenantId: row.id, actor: { type: 'owner', name: owner }, action: 'merchant.registered', entity: 'merchant', entityId: row.id,
+      details: { name: fields.name, username: fields.slug, business_type: extra.business_type, phone: maskPhone(phone) }, ip: req.ip }, c);
+    return row.id;
+  });
+  await notify(superPhone(), 'merchant.registered', `New merchant sign-up waiting for approval: ${fields.name} (${fields.slug}), ${owner}, ${phone}.`, { id });
+  res.json({ ok: true, username: fields.slug, admin_url: adminUrl(req, fields) });
+}));
+app.get('/api/register/check', a(async (req, res) => {
+  const u = String(req.query.username || '').trim().toLowerCase();
+  if (!/^[a-z0-9][a-z0-9-]{1,39}$/.test(u)) return res.json({ ok: false, error: '2–40 characters: lowercase letters, numbers and dashes' });
+  if (RESERVED.has(u)) return res.json({ ok: false, error: 'That name is reserved' });
+  res.json(await usernameFree(u) ? { ok: true, url: `${u}.${BASE}` } : { ok: false, error: 'Already taken' });
+}));
+
+// ---------------------------------------------------------------- Phase 2: public verification
+// Anyone can check a coupon or reward code. Nothing personal is shown and the scan count isn't touched.
+app.get('/api/verify/:code', a(async (req, res) => {
+  if (throttle('verify:' + req.ip, 60)) throw fail(429, 'Too many checks. Please wait a few minutes.');
+  const code = String(req.params.code).toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const c = await one('SELECT * FROM coupons WHERE code = $1 OR reward_code = $1', [code]);
+  if (!c) return res.json({ found: false });
+  const [batch, tenant] = await Promise.all([
+    one('SELECT * FROM batches WHERE id = $1', [c.batch_id]),
+    one('SELECT * FROM tenants WHERE id = $1', [c.tenant_id]),
+  ]);
+  const { camp, view } = await campaignView(batch);
+  const block = c.status === 'new' ? campaignBlock(batch, camp) : null;
+  const entry = await one(`SELECT hash, created_at FROM audit_log WHERE entity = 'coupon' AND entity_id = $1
+    AND action IN ('coupon.claimed','coupon.entered') ORDER BY id LIMIT 1`, [c.code]);
+  const redeemedAt = c.status === 'redeemed' ? c.redeemed_at : null;
+  res.json({
+    found: true, code: c.code, serial: c.serial, matched: code === c.code ? 'coupon' : 'reward',
+    status: c.status === 'new' ? (block ? block[0] : 'unused') : c.status,
+    status_note: block ? block[1] : '',
+    shop: { name: tenant.name, logo: tenant.logo, color: tenant.color, verified: isActive(tenant) },
+    campaign: { name: view.name, type: view.type, starts_on: view.starts_on, ends_on: view.ends_on, draw_on: view.draw_on, prizes: view.prizes },
+    claimed_at: c.claimed_at, claimed_by: maskName(c.customer_name || ''), phone: maskPhone(c.phone || ''),
+    result: c.gift_kind === 'entry' ? 'Lucky draw entry' : c.gift_kind === 'prize' ? c.gift_name : c.gift_kind === 'lose' ? 'No prize this time' : null,
+    reward_expires: c.gift_kind === 'prize' ? c.reward_expires : null, redeemed_at: redeemedAt,
+    record: entry ? { hash: entry.hash, at: entry.created_at } : null,
+  });
+}));
+// Shops a customer can pick when complaining without a coupon.
+app.get('/api/public/shops', a(async (req, res) => {
+  res.json(await q("SELECT slug, name FROM tenants WHERE status = 'active' ORDER BY name"));
+}));
+
+// ---------------------------------------------------------------- Phase 2: customer portal (WhatsApp OTP)
+const otpHash = async (phone, code) => crypto.createHmac('sha256', await secret()).update(`${phone}:${code}`).digest('hex');
+async function customerOf(req) {
+  const p = await readToken(cookies(req).nv_cust);
+  return p && p.cp ? p.cp : null;
+}
+app.post('/api/my/otp', a(async (req, res) => {
+  const phone = cleanPhone(req.body.phone);
+  if (!/^[6-9]\d{9}$/.test(phone)) throw fail(400, 'Please enter a valid 10-digit mobile number');
+  if (throttle('otp:' + req.ip, 10, 60 * 60000) || throttle('otp-phone:' + phone, 4, 30 * 60000)) throw fail(429, 'Too many codes requested. Please wait a while and try again.');
+  if (!WA_HOOK && !OTP_ON_SCREEN) throw fail(503, 'WhatsApp login is being set up. Please try again soon, or contact the shop directly.');
+  const code = String(crypto.randomInt(100000, 1000000));
+  await q('UPDATE otp_codes SET used = 1 WHERE phone = $1 AND used = 0', [phone]);
+  await q('INSERT INTO otp_codes(phone, code_hash, expires_at) VALUES($1, $2, $3)',
+    [phone, await otpHash(phone, code), new Date(Date.now() + 10 * 60000).toISOString().replace('T', ' ').slice(0, 19)]);
+  if (WA_HOOK) {
+    const sent = await notify(phone, 'otp', `Your ${PLATFORM} login code is ${code}. It is valid for 10 minutes. Do not share it with anyone.`, { code });
+    if (!sent) throw fail(502, 'Could not send the WhatsApp message. Please try again.');
+    return res.json({ ok: true });
+  }
+  res.json({ ok: true, dev_code: code });
+}));
+app.post('/api/my/login', a(async (req, res) => {
+  const phone = cleanPhone(req.body.phone);
+  const code = String(req.body.code || '').replace(/\D/g, '');
+  if (throttle('otp-login:' + req.ip, 30)) throw fail(429, 'Too many attempts. Please wait a few minutes.');
+  const row = await one(`SELECT * FROM otp_codes WHERE phone = $1 AND used = 0 AND expires_at > $2 ORDER BY id DESC LIMIT 1`, [phone, utcNow()]);
+  if (!row) throw fail(400, 'This code has expired. Please ask for a new one.');
+  if (row.attempts >= 5) throw fail(429, 'Too many wrong codes. Please ask for a new one.');
+  if (row.code_hash !== await otpHash(phone, code)) {
+    await q('UPDATE otp_codes SET attempts = attempts + 1 WHERE id = $1', [row.id]);
+    throw fail(400, 'That code is not right. Please check and try again.');
+  }
+  await q('UPDATE otp_codes SET used = 1 WHERE id = $1', [row.id]);
+  res.set('Set-Cookie', cookie(req, 'nv_cust', await makeToken({ cp: phone, exp: Date.now() + 30 * 86400000 }), 30 * 86400));
+  res.json({ ok: true });
+}));
+app.post('/api/my/logout', (req, res) => res.set('Set-Cookie', 'nv_cust=; Path=/; Max-Age=0').json({ ok: true }));
+app.get('/api/my/me', a(async (req, res) => {
+  const phone = await customerOf(req);
+  if (!phone) return res.json({ customer: false, otp_on_screen: OTP_ON_SCREEN, otp_available: !!WA_HOOK || OTP_ON_SCREEN });
+  const n = await one('SELECT customer_name FROM coupons WHERE phone = $1 AND customer_name IS NOT NULL ORDER BY claimed_at DESC LIMIT 1', [phone]);
+  res.json({ customer: true, phone, name: n ? n.customer_name : '' });
+}));
+app.use('/api/my', a(async (req, res, next) => {
+  req.customer = await customerOf(req);
+  if (!req.customer) throw fail(401, 'Please log in');
+  next();
+}));
+app.get('/api/my/coupons', a(async (req, res) => {
+  const rows = await q(`SELECT c.code, c.status, c.gift_name, c.gift_kind, c.reward_code, c.reward_expires, c.claimed_at, c.redeemed_at,
+      t.name AS shop, t.slug, t.logo, t.color, cp.name AS campaign, cp.type AS campaign_type, cp.draw_on, o.name AS outlet
+    FROM coupons c JOIN tenants t ON t.id = c.tenant_id JOIN batches b ON b.id = c.batch_id
+    LEFT JOIN campaigns cp ON cp.id = b.campaign_id LEFT JOIN outlets o ON o.id = b.outlet_id
+    WHERE c.phone = $1 AND c.status IN ('claimed','redeemed') ORDER BY c.claimed_at DESC LIMIT 200`, [req.customer]);
+  res.json(rows);
+}));
+
+// ---------- complaints (shared) ----------
+const CATEGORIES = {
+  not_received: 'Did not get my coupon / reward', prize_not_given: 'Shop did not give the prize', result_dispute: 'Problem with the result',
+  invalid_coupon: 'Coupon shows as invalid or used', other: 'Something else',
+};
+const COMPLAINT_STATUS = ['open', 'in_progress', 'resolved', 'rejected'];
+const STATUS_LABEL = { open: 'Open', in_progress: 'In progress', resolved: 'Resolved', rejected: 'Closed' };
+// Tickets nobody has resolved within a day go to the Super Admin. Runs whenever complaint lists are opened.
+async function escalateOverdue() {
+  const due = await q(`UPDATE complaints SET escalated = 1, escalated_at = $1, escalation_reason = 'Not resolved within 24 hours'
+    WHERE escalated = 0 AND status IN ('open','in_progress') AND created_at < $2 RETURNING id, ticket_no, tenant_id`,
+  [utcNow(), new Date(Date.now() - 24 * 3600000).toISOString().replace('T', ' ').slice(0, 19)]);
+  for (const c of due) {
+    await q("INSERT INTO complaint_messages(complaint_id, author_type, author_name, body) VALUES($1, 'system', $2, $3)",
+      [c.id, PLATFORM, 'Not resolved within 24 hours, so this ticket has been sent to the Genuine Draw team.']);
+    await audit({ tenantId: c.tenant_id, actor: { type: 'system', name: PLATFORM }, action: 'complaint.escalated', entity: 'complaint', entityId: c.ticket_no, details: { reason: 'overdue' } });
+  }
+  if (due.length) await notify(superPhone(), 'complaint.escalated', `${due.length} complaint${due.length > 1 ? 's were' : ' was'} not resolved within 24 hours: ${due.map(c => c.ticket_no).join(', ')}.`);
+}
+async function complaintDetail(where, params) {
+  const c = await one(`SELECT k.*, t.name AS shop, t.slug, o.name AS outlet, cp.name AS campaign
+    FROM complaints k LEFT JOIN tenants t ON t.id = k.tenant_id LEFT JOIN outlets o ON o.id = k.outlet_id
+    LEFT JOIN coupons cc ON cc.id = k.coupon_id LEFT JOIN batches b ON b.id = cc.batch_id LEFT JOIN campaigns cp ON cp.id = b.campaign_id
+    WHERE ${where}`, params);
+  if (!c) throw fail(404, 'Ticket not found');
+  c.messages = await q('SELECT author_type, author_name, body, created_at FROM complaint_messages WHERE complaint_id = $1 ORDER BY id', [c.id]);
+  c.category_label = CATEGORIES[c.category];
+  return c;
+}
+const complaintList = (where, params) => q(`SELECT k.id, k.ticket_no, k.category, k.status, k.escalated, k.coupon_code, k.customer_name, k.phone,
+    k.created_at, k.updated_at, t.name AS shop, o.name AS outlet,
+    (SELECT body FROM complaint_messages m WHERE m.complaint_id = k.id ORDER BY m.id DESC LIMIT 1) AS last_message
+  FROM complaints k LEFT JOIN tenants t ON t.id = k.tenant_id LEFT JOIN outlets o ON o.id = k.outlet_id
+  WHERE ${where} ORDER BY (k.status IN ('open','in_progress')) DESC, k.escalated DESC, k.updated_at DESC LIMIT 300`, params);
+// A reply from the shop or the Genuine Draw team, optionally changing the status.
+async function replyToComplaint(req, c, who, body, status) {
+  body = String(body || '').trim().slice(0, 2000);
+  if (status && !COMPLAINT_STATUS.includes(status)) throw fail(400, 'Unknown status');
+  if (!body && !status) throw fail(400, 'Please write a reply');
+  await tx(async t => {
+    if (body) await q('INSERT INTO complaint_messages(complaint_id, author_type, author_name, body) VALUES($1,$2,$3,$4)', [c.id, who.type, who.name, body], t);
+    const next = status || (c.status === 'open' ? 'in_progress' : c.status);
+    await q(`UPDATE complaints SET status = $2, updated_at = $3::timestamp, resolved_at = CASE WHEN $2 IN ('resolved','rejected') THEN $3::timestamp ELSE NULL END WHERE id = $1`,
+      [c.id, next, utcNow()], t);
+    await audit({ tenantId: c.tenant_id, actor: who.actor, action: next !== c.status ? 'complaint.status' : 'complaint.replied', entity: 'complaint', entityId: c.ticket_no,
+      details: { from: c.status, to: next, by: who.type }, ip: req.ip }, t);
+  });
+  const st = status && status !== c.status ? ` Status: ${STATUS_LABEL[status]}.` : '';
+  await notify(c.phone, 'complaint.update', `Update on your complaint ${c.ticket_no} (${c.shop || PLATFORM}):${body ? ' ' + body : ''}${st} See it at ${platformBase(req)}/my`, { ticket: c.ticket_no });
+}
+
+app.get('/api/my/complaints', a(async (req, res) => {
+  await escalateOverdue();
+  res.json(await complaintList('k.phone = $1', [req.customer]));
+}));
+app.get('/api/my/complaints/:ticket', a(async (req, res) => {
+  res.json(await complaintDetail('k.ticket_no = $1 AND k.phone = $2', [String(req.params.ticket).toUpperCase(), req.customer]));
+}));
+app.post('/api/my/complaints', a(async (req, res) => {
+  if (throttle('complaint:' + req.customer, 6, 60 * 60000)) throw fail(429, 'You have raised several complaints just now. Please wait a while.');
+  const b = req.body || {};
+  const category = CATEGORIES[b.category] ? b.category : null;
+  if (!category) throw fail(400, 'Please choose what went wrong');
+  const description = String(b.description || '').trim().slice(0, 2000);
+  if (description.length < 10) throw fail(400, 'Please describe the problem in a few words (at least 10 characters)');
+  const photo = String(b.photo || '');
+  if (photo && (!/^data:image\/(png|jpe?g|webp);base64,/.test(photo) || photo.length > 3_000_000)) throw fail(400, 'The photo must be a PNG, JPG or WebP under 2 MB');
+  const name = String(b.name || '').trim().slice(0, 60);
+  const incident = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?$/.test(b.incident_at || '') ? String(b.incident_at).replace('T', ' ') : null;
+  // The coupon (if any) decides the shop, outlet and time; otherwise the customer picks the shop.
+  const code = String(b.coupon_code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  let coupon = null, tenant = null;
+  if (code) {
+    coupon = await one('SELECT c.*, b.outlet_id AS batch_outlet FROM coupons c JOIN batches b ON b.id = c.batch_id WHERE c.code = $1 OR c.reward_code = $1', [code]);
+    if (!coupon) throw fail(400, "We couldn't find that coupon code. Check it, or leave it empty and choose the shop.");
+    tenant = await one('SELECT * FROM tenants WHERE id = $1', [coupon.tenant_id]);
+  } else {
+    tenant = await one("SELECT * FROM tenants WHERE slug = $1 AND status IN ('active','suspended')", [String(b.shop || '').toLowerCase()]);
+    if (!tenant) throw fail(400, 'Please enter the coupon code, or choose the shop');
+  }
+  const out = await tx(async t => {
+    let ticket;
+    do { ticket = 'GD-' + randomCode(6); } while (await one('SELECT 1 FROM complaints WHERE ticket_no = $1', [ticket], t));
+    const row = await one(`INSERT INTO complaints(ticket_no, tenant_id, coupon_id, coupon_code, outlet_id, phone, customer_name, category, description, photo, incident_at)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
+    [ticket, tenant.id, coupon ? coupon.id : null, coupon ? coupon.code : '', coupon ? (coupon.redeemed_outlet_id || coupon.batch_outlet) : null,
+      req.customer, name || (coupon && coupon.phone === req.customer ? coupon.customer_name : '') || '', category, description, photo,
+      incident || (coupon ? coupon.claimed_at : null)], t);
+    await q("INSERT INTO complaint_messages(complaint_id, author_type, author_name, body) VALUES($1, 'customer', $2, $3)", [row.id, name || 'Customer', description], t);
+    await audit({ tenantId: tenant.id, actor: { type: 'customer', name: maskPhone(req.customer) }, action: 'complaint.created', entity: 'complaint', entityId: ticket,
+      details: { category, coupon: coupon ? coupon.code : null }, ip: req.ip }, t);
+    return { ticket };
+  });
+  await notify(req.customer, 'complaint.created', `We have received your complaint ${out.ticket} about ${tenant.name}. The shop has 24 hours to resolve it, after which the ${PLATFORM} team steps in. Track it at ${platformBase(req)}/my`, out);
+  await notify(tenant.whatsapp || tenant.contact_phone, 'complaint.created', `New customer complaint ${out.ticket}: ${CATEGORIES[category]}. Please reply within 24 hours from your Complaints page: ${adminUrl(req, tenant)}`, out);
+  res.json(out);
+}));
+app.post('/api/my/complaints/:ticket/messages', a(async (req, res) => {
+  const c = await complaintDetail('k.ticket_no = $1 AND k.phone = $2', [String(req.params.ticket).toUpperCase(), req.customer]);
+  const body = String(req.body.body || '').trim().slice(0, 2000);
+  if (!body) throw fail(400, 'Please write a message');
+  await q("INSERT INTO complaint_messages(complaint_id, author_type, author_name, body) VALUES($1, 'customer', $2, $3)", [c.id, c.customer_name || 'Customer', body]);
+  // A customer writing back re-opens a closed ticket.
+  await q(`UPDATE complaints SET updated_at = $2, status = CASE WHEN status IN ('resolved','rejected') THEN 'open' ELSE status END, resolved_at = NULL WHERE id = $1`, [c.id, utcNow()]);
+  res.json({ ok: true });
+}));
+app.post('/api/my/complaints/:ticket/escalate', a(async (req, res) => {
+  const c = await complaintDetail('k.ticket_no = $1 AND k.phone = $2', [String(req.params.ticket).toUpperCase(), req.customer]);
+  if (c.escalated) throw fail(409, `This ticket is already with the ${PLATFORM} team.`);
+  const reason = String(req.body.reason || '').trim().slice(0, 500) || 'Customer asked for help from the platform';
+  await tx(async t => {
+    await q('UPDATE complaints SET escalated = 1, escalated_at = $2, escalation_reason = $3, updated_at = $2, status = CASE WHEN status IN (\'resolved\',\'rejected\') THEN \'open\' ELSE status END WHERE id = $1',
+      [c.id, utcNow(), reason], t);
+    await q("INSERT INTO complaint_messages(complaint_id, author_type, author_name, body) VALUES($1, 'system', $2, $3)",
+      [c.id, PLATFORM, `The customer asked the ${PLATFORM} team to step in: ${reason}`], t);
+    await audit({ tenantId: c.tenant_id, actor: { type: 'customer', name: maskPhone(req.customer) }, action: 'complaint.escalated', entity: 'complaint', entityId: c.ticket_no, details: { reason }, ip: req.ip }, t);
+  });
+  await notify(superPhone(), 'complaint.escalated', `Customer escalated complaint ${c.ticket_no} (${c.shop}): ${reason}`);
+  res.json({ ok: true });
 }));
 
 // ---------------------------------------------------------------- merchant admin API
@@ -334,6 +648,8 @@ app.post('/api/admin/login', a(async (req, res) => {
   if (site.kind === 'merchant' && t && t.slug !== site.slug) t = null;   // only this shop's owner and staff
   if (!t || !await verifyPassword(password, (st || t).password_hash)) throw fail(401, 'Wrong username or password');
   if (st && !st.active) throw fail(403, 'This login has been switched off. Please ask your shop owner.');
+  if (t.status === 'pending') throw fail(403, `Your registration is waiting for approval by the ${PLATFORM} team. We'll message you on WhatsApp once it's approved.`);
+  if (t.status === 'rejected') throw fail(403, `Your registration was not approved${t.reject_reason ? ': ' + t.reject_reason : '.'} Please contact ${PLATFORM}.`);
   if (t.status !== 'active') throw fail(403, `This account is paused. Please contact ${PLATFORM}.`);
   if (!isActive(t)) throw fail(403, `Your plan has expired. Please contact ${PLATFORM} to renew.`);
   const payload = { t: t.id, v: t.session_version, exp: Date.now() + 7 * 86400000 };
@@ -485,15 +801,19 @@ app.get('/api/admin/batches', a(async (req, res) => {
       COUNT(c.id) FILTER (WHERE c.status IN ('claimed','redeemed')) AS claimed,
       COUNT(c.id) FILTER (WHERE c.status = 'redeemed') AS redeemed,
       COUNT(c.id) FILTER (WHERE c.status = 'void') AS voided
-    FROM batches b LEFT JOIN coupons c ON c.batch_id = b.id LEFT JOIN outlets o ON o.id = b.outlet_id
-    WHERE b.tenant_id = $1 GROUP BY b.id, o.name ORDER BY b.id DESC`, [T(req)]));
+    , cp.name AS campaign_name, cp.type AS campaign_type
+    FROM batches b LEFT JOIN coupons c ON c.batch_id = b.id LEFT JOIN outlets o ON o.id = b.outlet_id LEFT JOIN campaigns cp ON cp.id = b.campaign_id
+    WHERE b.tenant_id = $1 AND ($2::int IS NULL OR b.campaign_id = $2) GROUP BY b.id, o.name, cp.name, cp.type ORDER BY b.id DESC`,
+  [T(req), req.query.campaign_id ? int(req.query.campaign_id) : null]));
 }));
 app.post('/api/admin/batches', a(async (req, res) => {
   const count = int(req.body.count);
   if (!(count >= 1 && count <= 1000)) throw fail(400, 'Number of coupons must be between 1 and 1000');
   const name = String(req.body.name || '').trim().slice(0, 60);
-  if (!name) throw fail(400, 'Campaign name is required');
+  if (!name) throw fail(400, 'Batch name is required');
   const outlet = await outletOf(req, req.body.outlet_id);
+  const campaign = req.body.campaign_id ? await campaignOf(req, req.body.campaign_id) : null;
+  if (campaign && campaign.status === 'drawn') throw fail(409, 'The draw for this campaign has already taken place.');
   if (req.tenant.max_coupons != null) {
     const { used } = await one('SELECT COALESCE(SUM(count), 0) AS used FROM batches WHERE tenant_id = $1', [T(req)]);
     const left = req.tenant.max_coupons - used;
@@ -509,15 +829,19 @@ app.post('/api/admin/batches', a(async (req, res) => {
     count,
   };
   const id = await tx(async t => {
+    // Without a chosen campaign, the batch gets its own Instant Win campaign (how batches worked before campaigns).
+    fields.campaignId = campaign ? campaign.id : (await one(`INSERT INTO campaigns(tenant_id, name, type, starts_on, ends_on)
+      VALUES($1, $2, 'instant', $3, $4) RETURNING id`, [T(req), name, today(), fields.expires_on], t)).id;
     const id = await createBatch(fields, t);
     if (outlet) await q('UPDATE batches SET outlet_id = $2 WHERE id = $1', [id, outlet.id], t);
-    await log(req, 'batch.created', 'batch', id, { name, count, outlet: outlet ? outlet.name : null, expires_on: fields.expires_on }, t);
+    await log(req, 'batch.created', 'batch', id, { name, count, campaign: campaign ? campaign.name : name, outlet: outlet ? outlet.name : null, expires_on: fields.expires_on }, t);
     return id;
   });
   res.json({ id });
 }));
 app.get('/api/admin/batches/:id', a(async (req, res) => {
-  const batch = await one(`SELECT b.*, o.name AS outlet_name FROM batches b LEFT JOIN outlets o ON o.id = b.outlet_id
+  const batch = await one(`SELECT b.*, o.name AS outlet_name, cp.name AS campaign_name, cp.type AS campaign_type, cp.draw_on
+    FROM batches b LEFT JOIN outlets o ON o.id = b.outlet_id LEFT JOIN campaigns cp ON cp.id = b.campaign_id
     WHERE b.id = $1 AND b.tenant_id = $2`, [int(req.params.id), T(req)]);
   if (!batch) throw fail(404, 'Not found');
   const [coupons, treats] = await Promise.all([
@@ -557,8 +881,8 @@ app.post('/api/admin/coupons/:id/void', a(async (req, res) => {
 function customerRows(tenantId, search) {
   const like = `%${search || ''}%`;
   return q(`SELECT c.id, c.code, c.customer_name, c.phone, c.area, c.dob, c.occasion, c.consent, c.gift_name, c.gift_kind,
-      c.reward_code, c.reward_expires, c.status, c.claimed_at, c.redeemed_at, b.name AS campaign, o.name AS outlet, ro.name AS redeemed_outlet
-    FROM coupons c JOIN batches b ON b.id = c.batch_id
+      c.reward_code, c.reward_expires, c.status, c.claimed_at, c.redeemed_at, COALESCE(cp.name, b.name) AS campaign, b.name AS batch, o.name AS outlet, ro.name AS redeemed_outlet
+    FROM coupons c JOIN batches b ON b.id = c.batch_id LEFT JOIN campaigns cp ON cp.id = b.campaign_id
     LEFT JOIN outlets o ON o.id = b.outlet_id LEFT JOIN outlets ro ON ro.id = c.redeemed_outlet_id
     WHERE c.tenant_id = $2 AND c.claimed_at IS NOT NULL AND (c.customer_name ILIKE $1 OR c.phone ILIKE $1 OR c.area ILIKE $1
       OR c.code ILIKE $1 OR COALESCE(c.reward_code,'') ILIKE $1)
@@ -759,6 +1083,194 @@ app.delete('/api/admin/staff/:id', a(async (req, res) => {
   res.json({ ok: true });
 }));
 
+// Campaigns: Instant Win (scratch and win now) or Lucky Draw (entries now, winners drawn later)
+const dateOr = v => /^\d{4}-\d{2}-\d{2}$/.test(v || '') ? v : null;
+function campaignFields(b) {
+  const f = {
+    name: String(b.name || '').trim().slice(0, 80),
+    type: b.type === 'draw' ? 'draw' : 'instant',
+    description: String(b.description || '').trim().slice(0, 500),
+    terms: String(b.terms || '').trim().slice(0, 2000),
+    starts_on: dateOr(b.starts_on), ends_on: dateOr(b.ends_on), draw_on: dateOr(b.draw_on),
+    status: b.status === 'paused' ? 'paused' : 'active',
+  };
+  if (!f.name) throw fail(400, 'Campaign name is required');
+  if (f.starts_on && f.ends_on && f.ends_on < f.starts_on) throw fail(400, 'The end date must be on or after the start date');
+  if (f.type === 'draw') {
+    if (!f.ends_on) throw fail(400, 'A Lucky Draw needs an end date (the last day to enter)');
+    if (!f.draw_on) throw fail(400, 'A Lucky Draw needs a draw date');
+    if (f.draw_on < f.ends_on) throw fail(400, 'The draw date must be on or after the end date');
+  } else f.draw_on = null;
+  return f;
+}
+const prizeFields = list => (Array.isArray(list) ? list : []).slice(0, 50).map((p, i) => ({
+  rank: Math.max(1, Math.min(99, int(p.rank) || i + 1)),
+  name: String(p.name || '').trim().slice(0, 80),
+  description: String(p.description || '').trim().slice(0, 240),
+  image: String(p.image || '').slice(0, 1_500_000),
+  quantity: Math.max(1, Math.min(10000, int(p.quantity) || 1)),
+})).filter(p => p.name);
+async function campaignOf(req, id, client) {
+  const c = await one('SELECT * FROM campaigns WHERE id = $1 AND tenant_id = $2', [int(id), T(req)], client);
+  if (!c) throw fail(404, 'Campaign not found');
+  return c;
+}
+const CAMPAIGN_STATS = `SELECT cp.*,
+    COUNT(DISTINCT b.id) AS batches, COUNT(c.id) FILTER (WHERE c.status <> 'void') AS printed,
+    COUNT(c.id) FILTER (WHERE c.scans > 0) AS scanned,
+    COUNT(c.id) FILTER (WHERE c.status IN ('claimed','redeemed')) AS claimed,
+    COUNT(c.id) FILTER (WHERE c.gift_kind = 'entry') AS entries,
+    COUNT(c.id) FILTER (WHERE c.status IN ('claimed','redeemed') AND c.gift_kind = 'prize') AS winners,
+    COUNT(c.id) FILTER (WHERE c.status = 'redeemed') AS redeemed,
+    COUNT(DISTINCT c.phone) AS customers
+  FROM campaigns cp LEFT JOIN batches b ON b.campaign_id = cp.id LEFT JOIN coupons c ON c.batch_id = b.id`;
+app.get('/api/admin/campaigns', a(async (req, res) => {
+  const rows = await q(`${CAMPAIGN_STATS} WHERE cp.tenant_id = $1 GROUP BY cp.id ORDER BY cp.status = 'active' DESC, cp.id DESC`, [T(req)]);
+  const prizes = await q(`SELECT p.* FROM campaign_prizes p JOIN campaigns cp ON cp.id = p.campaign_id WHERE cp.tenant_id = $1 ORDER BY p.rank, p.id`, [T(req)]);
+  for (const r of rows) r.prizes = prizes.filter(p => p.campaign_id === r.id);
+  res.json(rows);
+}));
+app.get('/api/admin/campaigns/:id', a(async (req, res) => {
+  const c = await one(`${CAMPAIGN_STATS} WHERE cp.id = $1 AND cp.tenant_id = $2 GROUP BY cp.id`, [int(req.params.id), T(req)]);
+  if (!c) throw fail(404, 'Campaign not found');
+  c.prizes = await q('SELECT * FROM campaign_prizes WHERE campaign_id = $1 ORDER BY rank, id', [c.id]);
+  c.batches = await q(`SELECT b.id, b.name, b.count, b.created_at, o.name AS outlet_name FROM batches b LEFT JOIN outlets o ON o.id = b.outlet_id
+    WHERE b.campaign_id = $1 ORDER BY b.id DESC`, [c.id]);
+  res.json(c);
+}));
+async function savePrizes(campaignId, prizes, client) {
+  await q('DELETE FROM campaign_prizes WHERE campaign_id = $1', [campaignId], client);
+  for (const p of prizes) {
+    await q('INSERT INTO campaign_prizes(campaign_id, rank, name, description, image, quantity) VALUES($1,$2,$3,$4,$5,$6)',
+      [campaignId, p.rank, p.name, p.description, p.image, p.quantity], client);
+  }
+}
+app.post('/api/admin/campaigns', a(async (req, res) => {
+  const f = campaignFields(req.body);
+  const prizes = prizeFields(req.body.prizes);
+  if (f.type === 'draw' && !prizes.length) throw fail(400, 'Add at least one prize for the Lucky Draw');
+  const id = await tx(async t => {
+    const { id } = await one(`INSERT INTO campaigns(tenant_id, name, type, description, terms, starts_on, ends_on, draw_on, status)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`, [T(req), f.name, f.type, f.description, f.terms, f.starts_on, f.ends_on, f.draw_on, f.status], t);
+    await savePrizes(id, prizes, t);
+    await log(req, 'campaign.created', 'campaign', id, { ...f, prizes: prizes.map(p => `${p.rank}. ${p.name} ×${p.quantity}`) }, t);
+    return id;
+  });
+  res.json({ id });
+}));
+app.put('/api/admin/campaigns/:id', a(async (req, res) => {
+  const before = await campaignOf(req, req.params.id);
+  if (before.status === 'drawn') throw fail(409, 'The draw has taken place, so this campaign can no longer be changed.');
+  const f = campaignFields({ ...before, ...req.body });
+  const { played } = await one(`SELECT COUNT(*) AS played FROM coupons c JOIN batches b ON b.id = c.batch_id
+    WHERE b.campaign_id = $1 AND c.status IN ('claimed','redeemed')`, [before.id]);
+  // Once customers have played, the rules they played under are fixed (prizes can still be added to).
+  if (played && f.type !== before.type) throw fail(409, 'Customers have already played this campaign, so its type cannot change.');
+  if (played && before.type === 'draw' && f.draw_on !== before.draw_on && f.draw_on < (before.draw_on || '')) throw fail(409, 'The draw date can only be moved later once customers have entered.');
+  const prizes = 'prizes' in req.body ? prizeFields(req.body.prizes) : null;
+  if (f.type === 'draw' && prizes && !prizes.length) throw fail(400, 'Add at least one prize for the Lucky Draw');
+  await tx(async t => {
+    await q(`UPDATE campaigns SET name=$3, type=$4, description=$5, terms=$6, starts_on=$7, ends_on=$8, draw_on=$9, status=$10 WHERE id=$1 AND tenant_id=$2`,
+      [before.id, T(req), f.name, f.type, f.description, f.terms, f.starts_on, f.ends_on, f.draw_on, f.status], t);
+    if (prizes) await savePrizes(before.id, prizes, t);
+    const changed = Object.fromEntries(Object.keys(f).filter(k => String(f[k] ?? '') !== String(before[k] ?? '')).map(k => [k, f[k]]));
+    if (prizes) changed.prizes = prizes.map(p => `${p.rank}. ${p.name} ×${p.quantity}`);
+    const action = f.status !== before.status ? (f.status === 'paused' ? 'campaign.paused' : 'campaign.resumed') : 'campaign.updated';
+    await log(req, action, 'campaign', before.id, { name: f.name, ...changed }, t);
+  });
+  res.json({ ok: true });
+}));
+app.delete('/api/admin/campaigns/:id', a(async (req, res) => {
+  const c = await campaignOf(req, req.params.id);
+  const { n } = await one(`SELECT COUNT(*) AS n FROM coupons x JOIN batches b ON b.id = x.batch_id WHERE b.campaign_id = $1 AND x.status IN ('claimed','redeemed')`, [c.id]);
+  if (n) throw fail(409, 'Customers have played this campaign, so it is kept for the record. Pause it instead.');
+  await tx(async t => {
+    await q('DELETE FROM campaigns WHERE id = $1', [c.id], t);   // its unused batches and coupons go with it
+    await log(req, 'campaign.deleted', 'campaign', c.id, { name: c.name, type: c.type }, t);
+  });
+  res.json({ ok: true });
+}));
+
+// Reports: per campaign and per outlet for a date range, plus a CSV of every play in it.
+function reportRange(query) {
+  const from = dateOr(query.from) || '2000-01-01';
+  const to = dateOr(query.to) || '2999-12-31';
+  return { from, to, toEx: new Date(Date.parse(to) + 86400000).toISOString().slice(0, 10) };
+}
+app.get('/api/admin/reports', a(async (req, res) => {
+  const { from, to, toEx } = reportRange(req.query);
+  const camp = req.query.campaign_id ? int(req.query.campaign_id) : null;
+  const P = [T(req), from, toEx, camp];
+  const inRange = col => `${col} >= $2 AND ${col} < $3`;
+  const base = `FROM coupons c JOIN batches b ON b.id = c.batch_id WHERE c.tenant_id = $1 AND ($4::int IS NULL OR b.campaign_id = $4)`;
+  const [totals, campaigns, outlets, days, gifts] = await Promise.all([
+    one(`SELECT COUNT(*) FILTER (WHERE ${inRange('b.created_at')} AND c.status <> 'void') AS printed,
+        COUNT(*) FILTER (WHERE ${inRange('c.first_scan_at')}) AS scanned,
+        COUNT(*) FILTER (WHERE ${inRange('c.claimed_at')}) AS claimed,
+        COUNT(*) FILTER (WHERE ${inRange('c.claimed_at')} AND c.gift_kind = 'prize') AS winners,
+        COUNT(*) FILTER (WHERE ${inRange('c.claimed_at')} AND c.gift_kind = 'entry') AS entries,
+        COUNT(*) FILTER (WHERE c.status = 'redeemed' AND ${inRange('c.redeemed_at')}) AS redeemed,
+        COUNT(DISTINCT c.phone) FILTER (WHERE ${inRange('c.claimed_at')}) AS customers,
+        COUNT(DISTINCT c.phone) FILTER (WHERE ${inRange('c.claimed_at')} AND c.consent = 1) AS optins ${base}`, P),
+    q(`SELECT cp.id, cp.name, cp.type, cp.status, cp.starts_on, cp.ends_on, cp.draw_on,
+        COUNT(c.id) FILTER (WHERE ${inRange('b.created_at')} AND c.status <> 'void') AS printed,
+        COUNT(c.id) FILTER (WHERE ${inRange('c.first_scan_at')}) AS scanned,
+        COUNT(c.id) FILTER (WHERE ${inRange('c.claimed_at')}) AS claimed,
+        COUNT(c.id) FILTER (WHERE ${inRange('c.claimed_at')} AND c.gift_kind = 'prize') AS winners,
+        COUNT(c.id) FILTER (WHERE ${inRange('c.claimed_at')} AND c.gift_kind = 'entry') AS entries,
+        COUNT(c.id) FILTER (WHERE c.status = 'redeemed' AND ${inRange('c.redeemed_at')}) AS redeemed,
+        COUNT(DISTINCT c.phone) FILTER (WHERE ${inRange('c.claimed_at')}) AS customers
+      FROM campaigns cp LEFT JOIN batches b ON b.campaign_id = cp.id LEFT JOIN coupons c ON c.batch_id = b.id
+      WHERE cp.tenant_id = $1 AND ($4::int IS NULL OR cp.id = $4) GROUP BY cp.id ORDER BY cp.id DESC`, P),
+    q(`SELECT o.id, o.name,
+        COALESCE(i.issued, 0) AS issued, COALESCE(i.claimed, 0) AS claimed, COALESCE(i.winners, 0) AS winners, COALESCE(r.redeemed, 0) AS redeemed
+      FROM outlets o
+      LEFT JOIN (SELECT b.outlet_id, COUNT(*) FILTER (WHERE ${inRange('b.created_at')} AND c.status <> 'void') AS issued,
+                   COUNT(*) FILTER (WHERE ${inRange('c.claimed_at')}) AS claimed,
+                   COUNT(*) FILTER (WHERE ${inRange('c.claimed_at')} AND c.gift_kind = 'prize') AS winners
+                 ${base} GROUP BY b.outlet_id) i ON i.outlet_id = o.id
+      LEFT JOIN (SELECT c.redeemed_outlet_id, COUNT(*) AS redeemed ${base} AND c.status = 'redeemed' AND ${inRange('c.redeemed_at')}
+                 GROUP BY c.redeemed_outlet_id) r ON r.redeemed_outlet_id = o.id
+      WHERE o.tenant_id = $1 ORDER BY o.id`, P),
+    q(`SELECT to_char(c.claimed_at, 'YYYY-MM-DD') AS d, COUNT(*) AS claimed,
+        COUNT(*) FILTER (WHERE c.status = 'redeemed') AS redeemed ${base} AND ${inRange('c.claimed_at')} GROUP BY 1 ORDER BY 1`, P),
+    q(`SELECT c.gift_name AS name, c.gift_kind AS kind, COUNT(*) AS n, COUNT(*) FILTER (WHERE c.status = 'redeemed') AS redeemed
+      ${base} AND ${inRange('c.claimed_at')} GROUP BY 1, 2 ORDER BY n DESC LIMIT 20`, P),
+  ]);
+  res.json({ from, to, totals, campaigns, outlets, days, gifts });
+}));
+app.get('/api/admin/reports.csv', a(async (req, res) => {
+  const { from, to, toEx } = reportRange(req.query);
+  const camp = req.query.campaign_id ? int(req.query.campaign_id) : null;
+  const rows = await q(`SELECT c.claimed_at, c.code, cp.name AS campaign, cp.type, o.name AS outlet, c.customer_name, c.phone, c.area,
+      c.gift_name, c.gift_kind, c.reward_code, c.status, c.redeemed_at, ro.name AS redeemed_at_outlet, c.consent
+    FROM coupons c JOIN batches b ON b.id = c.batch_id LEFT JOIN campaigns cp ON cp.id = b.campaign_id
+    LEFT JOIN outlets o ON o.id = b.outlet_id LEFT JOIN outlets ro ON ro.id = c.redeemed_outlet_id
+    WHERE c.tenant_id = $1 AND c.claimed_at >= $2 AND c.claimed_at < $3 AND ($4::int IS NULL OR b.campaign_id = $4)
+    ORDER BY c.claimed_at`, [T(req), from, toEx, camp]);
+  const cols = ['claimed_at', 'code', 'campaign', 'type', 'outlet', 'customer_name', 'phone', 'area', 'gift_name', 'gift_kind', 'reward_code', 'status', 'redeemed_at', 'redeemed_at_outlet', 'consent'];
+  const esc = v => { const s = String(v ?? ''); return /[",\n]/.test(s) || /^[=+\-@]/.test(s) ? `"${s.replace(/^([=+\-@])/, "'$1").replace(/"/g, '""')}"` : s; };
+  await log(req, 'report.exported', 'report', '', { from, to, campaign_id: camp, rows: rows.length });
+  res.set('Content-Type', 'text/csv; charset=utf-8')
+    .set('Content-Disposition', `attachment; filename="report-${req.tenant.slug}-${from}-to-${to}.csv"`)
+    .send('﻿' + [cols.join(','), ...rows.map(r => cols.map(k => esc(r[k])).join(','))].join('\n'));
+}));
+
+// Complaints raised by customers about this merchant
+app.get('/api/admin/complaints', a(async (req, res) => {
+  await escalateOverdue();
+  const st = COMPLAINT_STATUS.includes(req.query.status) ? req.query.status : null;
+  res.json(await complaintList('k.tenant_id = $1 AND ($2::text IS NULL OR k.status = $2)', [T(req), st]));
+}));
+app.get('/api/admin/complaints/:id', a(async (req, res) => {
+  res.json(await complaintDetail('k.id = $1 AND k.tenant_id = $2', [int(req.params.id), T(req)]));
+}));
+app.post('/api/admin/complaints/:id/reply', a(async (req, res) => {
+  const c = await complaintDetail('k.id = $1 AND k.tenant_id = $2', [int(req.params.id), T(req)]);
+  await replyToComplaint(req, c, { type: 'merchant', name: req.tenant.name, actor: req.actor }, req.body.body, req.body.status);
+  res.json({ ok: true });
+}));
+
 // Activity log (this merchant's entries only)
 app.get('/api/admin/activity', a(async (req, res) => {
   const before = int(req.query.before) || 2 ** 62;
@@ -813,9 +1325,13 @@ app.get('/api/super/overview', a(async (req, res) => {
         COUNT(*) FILTER (WHERE claimed_at >= (now() AT TIME ZONE 'utc') - interval '30 days') AS claims_30d,
         MAX(claimed_at) AS last_claim_at
       FROM coupons GROUP BY tenant_id) s ON s.tenant_id = t.id
-    ORDER BY t.created_at DESC`);
+    WHERE t.status IN ('active','suspended') ORDER BY t.created_at DESC`);
   for (const t of tenants) { t.active = isActive(t); t.admin_url = adminUrl(req, t); }
-  res.json({ tenants, today: today() });
+  await escalateOverdue();
+  const counts = await one(`SELECT (SELECT COUNT(*) FROM tenants WHERE status = 'pending') AS pending,
+    (SELECT COUNT(*) FROM complaints WHERE escalated = 1 AND status IN ('open','in_progress')) AS escalated,
+    (SELECT COUNT(*) FROM complaints WHERE status IN ('open','in_progress')) AS open_complaints`);
+  res.json({ tenants, today: today(), counts });
 }));
 app.get('/api/super/tenants/:id', a(async (req, res) => {
   const t = await one('SELECT * FROM tenants WHERE id = $1', [int(req.params.id)]);
@@ -910,6 +1426,62 @@ app.put('/api/super/password', a(async (req, res) => {
   res.json({ ok: true });
 }));
 
+// Merchant sign-ups waiting for approval
+app.get('/api/super/approvals', a(async (req, res) => {
+  const cols = `id, slug, name, logo, owner_name, contact_phone, email, gst_number, business_type, address, status, reject_reason, created_at, decided_at`;
+  const [pending, decided] = await Promise.all([
+    q(`SELECT ${cols} FROM tenants WHERE status = 'pending' ORDER BY created_at`),
+    q(`SELECT ${cols} FROM tenants WHERE signup_source = 'self' AND status <> 'pending' ORDER BY decided_at DESC NULLS LAST LIMIT 30`),
+  ]);
+  for (const t of [...pending, ...decided]) t.admin_url = adminUrl(req, t);
+  res.json({ pending, decided });
+}));
+app.post('/api/super/tenants/:id/approve', a(async (req, res) => {
+  const t = await one('SELECT * FROM tenants WHERE id = $1', [int(req.params.id)]);
+  if (!t) throw fail(404, 'Merchant not found');
+  if (t.status !== 'pending' && t.status !== 'rejected') throw fail(409, 'This merchant is not waiting for approval');
+  const plan = dateOr(req.body.plan_expires_on);
+  const max = req.body.max_coupons === '' || req.body.max_coupons == null ? null : Math.max(0, int(req.body.max_coupons));
+  await tx(async c => {
+    await q(`UPDATE tenants SET status = 'active', decided_at = $2, reject_reason = '', plan_expires_on = $3, max_coupons = $4 WHERE id = $1`,
+      [t.id, utcNow(), plan, max], c);
+    await slog(req, t.id, 'merchant.approved', 'merchant', t.id, { name: t.name, username: t.slug, plan_expires_on: plan, max_coupons: max }, c);
+  });
+  await notify(t.contact_phone, 'merchant.approved', `Good news! ${t.name} is approved on ${PLATFORM}. Sign in at ${adminUrl(req, t)} with the username "${t.slug}".`);
+  res.json({ ok: true, admin_url: adminUrl(req, t) });
+}));
+app.post('/api/super/tenants/:id/reject', a(async (req, res) => {
+  const t = await one('SELECT * FROM tenants WHERE id = $1', [int(req.params.id)]);
+  if (!t) throw fail(404, 'Merchant not found');
+  if (t.status !== 'pending') throw fail(409, 'This merchant is not waiting for approval');
+  const reason = String(req.body.reason || '').trim().slice(0, 500);
+  if (reason.length < 3) throw fail(400, 'Please give a reason (the merchant will see it)');
+  await tx(async c => {
+    await q(`UPDATE tenants SET status = 'rejected', decided_at = $2, reject_reason = $3, session_version = session_version + 1 WHERE id = $1`, [t.id, utcNow(), reason], c);
+    await slog(req, t.id, 'merchant.rejected', 'merchant', t.id, { name: t.name, username: t.slug, reason }, c);
+  });
+  await notify(t.contact_phone, 'merchant.rejected', `Your ${PLATFORM} registration for ${t.name} was not approved: ${reason}`);
+  res.json({ ok: true });
+}));
+
+// Complaints across every merchant
+app.get('/api/super/complaints', a(async (req, res) => {
+  await escalateOverdue();
+  const f = req.query.filter;
+  const where = f === 'all' ? 'TRUE' : f === 'open' ? "k.status IN ('open','in_progress')" : "k.escalated = 1 AND k.status IN ('open','in_progress')";
+  res.json(await complaintList(where, []));
+}));
+app.get('/api/super/complaints/:id', a(async (req, res) => res.json(await complaintDetail('k.id = $1', [int(req.params.id)]))));
+app.post('/api/super/complaints/:id/reply', a(async (req, res) => {
+  const c = await complaintDetail('k.id = $1', [int(req.params.id)]);
+  await replyToComplaint(req, c, { type: 'super', name: `${PLATFORM} team`, actor: SUPER }, req.body.body, req.body.status);
+  if (req.body.body) {
+    const t = await one('SELECT * FROM tenants WHERE id = $1', [c.tenant_id]);
+    if (t) await notify(t.whatsapp || t.contact_phone, 'complaint.super_reply', `The ${PLATFORM} team replied on complaint ${c.ticket_no}: ${String(req.body.body).slice(0, 300)}`);
+  }
+  res.json({ ok: true });
+}));
+
 // Platform-wide activity log, and a full check that nobody has altered it.
 app.get('/api/super/activity', a(async (req, res) => {
   const before = int(req.query.before) || 2 ** 62;
@@ -944,7 +1516,15 @@ app.get(['/super', '/super/'], (req, res) => {
   if (k === 'merchant' || k === 'unknown') return res.redirect(`https://${BASE}/super`);
   res.sendFile(path.join(pub, 'super', 'index.html'));
 });
-app.get('/c/:code', (req, res) => res.sendFile(path.join(pub, 'c', 'index.html')));
+app.get('/c/:code([A-Za-z0-9-]+)', (req, res) => res.sendFile(path.join(pub, 'c', 'index.html')));
+const platformPage = file => (req, res) => {
+  const k = siteOf(req).kind;
+  if (k === 'merchant' || k === 'unknown') return res.redirect(`https://${BASE}${req.originalUrl}`);
+  res.sendFile(path.join(pub, file));
+};
+app.get('/register', platformPage('register.html'));
+app.get(['/verify', '/verify/:code'], platformPage('verify.html'));
+app.get('/my', platformPage('my.html'));
 app.use(express.static(pub, { extensions: ['html'], maxAge: 0 }));
 
 // Errors: known ones (fail()) go to the user as-is; anything else is logged and hidden.

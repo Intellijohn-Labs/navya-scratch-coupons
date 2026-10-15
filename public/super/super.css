@@ -35,3 +35,8 @@ body.super .btn.primary { background: linear-gradient(135deg, #2A3F6E, #14213D);
   .bk-actions .btn { flex: 1; }
 }
 @media (max-width: 420px) { .bk-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+.nav a { position: relative; }
+.nbadge { margin-left: auto; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 99px; background: #E5484D; color: #fff; font-style: normal; font-size: 11.5px; font-weight: 800; display: grid; place-items: center; }
+body.super .seg button.on { color: #14213D; }
+@media (max-width: 760px) { .nbadge { position: absolute; top: 2px; right: 2px; min-width: 16px; height: 16px; font-size: 10px; padding: 0 4px; } }

@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#14213D">
+<title>Register your business · Genuine Draw</title>
+<meta name="description" content="Run trusted scratch-and-win and lucky draw campaigns for your shop with Genuine Draw.">
+<link rel="icon" href="/img/platform-icon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Albert+Sans:wght@400;500;600;700;800;900&family=Fraunces:opsz,wght@9..144,800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/admin/admin.css">
+<link rel="stylesheet" href="/portal.css">
+</head>
+<body class="portal">
+  <header class="p-top">
+    <a class="p-brand" href="/register"><img src="/img/platform-icon.svg" alt=""><span>Genuine Draw</span></a>
+    <nav class="p-links"><a href="/verify">Verify a coupon</a><a href="/my">My coupons</a><a href="/admin">Shop sign-in</a></nav>
+  </header>
+  <main class="p-wrap">
+    <div class="p-hero">
+      <h1>Register your business</h1>
+      <p>Run trusted Scratch &amp; Win and Lucky Draw campaigns. Every coupon is single-use and every result is logged.</p>
+    </div>
+
+    <form class="p-card" id="f" novalidate>
+      <h2>Business</h2>
+      <label class="label">Business name</label>
+      <input class="input" name="name" maxlength="80" placeholder="e.g. Royal Bakes" required>
+      <label class="label">Choose a username <i>(this becomes your web address)</i></label>
+      <input class="input" name="username" maxlength="40" placeholder="e.g. royal-bakes" autocapitalize="none" spellcheck="false" required>
+      <p class="hint" id="uHint">Lowercase letters, numbers and dashes.</p>
+      <div class="grid2">
+        <div><label class="label">Type of business</label>
+          <select class="input" name="business_type">
+            <option>Bakery</option><option>Restaurant / Café</option><option>Supermarket</option><option>Textiles</option>
+            <option>Jewellery</option><option>Electronics</option><option>Pharmacy</option><option>Other</option>
+          </select></div>
+        <div><label class="label">GST number <i>(optional)</i></label><input class="input" name="gst_number" maxlength="20" placeholder="32ABCDE1234F1Z5"></div>
+      </div>
+      <label class="label">Address</label>
+      <input class="input" name="address" maxlength="200" placeholder="Shop address, town">
+
+      <h2 style="margin-top:24px">Owner</h2>
+      <div class="grid2">
+        <div><label class="label">Your name</label><input class="input" name="owner_name" maxlength="80" autocomplete="name" required></div>
+        <div><label class="label">WhatsApp number</label><input class="input" name="phone" inputmode="numeric" maxlength="14" autocomplete="tel-national" placeholder="98470 12345" required></div>
+      </div>
+      <label class="label">Email <i>(optional)</i></label>
+      <input class="input" name="email" type="email" maxlength="120" autocomplete="email">
+      <label class="label">Password <i>(at least 8 characters)</i></label>
+      <input class="input" name="password" type="password" minlength="8" autocomplete="new-password" required>
+
+      <label class="check-row"><input type="checkbox" name="agree"><span>I confirm these details are correct and agree to run campaigns honestly. Genuine Draw may verify my business before approval.</span></label>
+      <p class="p-err" id="err"></p>
+      <button class="btn primary block" id="go">Submit for approval</button>
+      <p class="hint" style="text-align:center;margin-top:12px">Already registered? <a href="/admin">Sign in to your shop</a></p>
+    </form>
+
+    <div class="p-card p-ok" id="done" hidden>
+      <div class="big">🎉</div>
+      <h2>Thanks! We've got your details.</h2>
+      <p class="muted">The Genuine Draw team will check them and message you on WhatsApp once your account is approved, usually within one working day.</p>
+      <div class="p-note">Your shop's address will be <b id="doneUrl"></b><br>Sign in there with the username <b id="doneUser"></b> and the password you chose.</div>
+    </div>
+  </main>
+  <footer class="p-foot"><img src="/img/platform-icon.svg" alt="">Genuine Draw · trusted coupons &amp; lucky draws</footer>
+<script>
+(() => {
+  const f = document.getElementById('f'), err = document.getElementById('err'), hint = document.getElementById('uHint');
+  const slugify = s => String(s || '').toLowerCase().normalize('NFKD').replace(/[^\w\s-]/g, '').trim().replace(/[\s_]+/g, '-').replace(/-+/g, '-').slice(0, 40);
+  let touched = false, timer;
+  const check = () => {
+    clearTimeout(timer);
+    const u = f.username.value.trim().toLowerCase();
+    if (!u) { hint.className = 'hint'; hint.textContent = 'Lowercase letters, numbers and dashes.'; return; }
+    timer = setTimeout(async () => {
+      const r = await fetch('/api/register/check?username=' + encodeURIComponent(u)).then(r => r.json()).catch(() => null);
+      if (!r || f.username.value.trim().toLowerCase() !== u) return;
+      hint.className = r.ok ? 'hint hint-ok' : 'hint hint-bad';
+      hint.textContent = r.ok ? `✓ Available: ${r.url}` : `✗ ${r.error}`;
+    }, 300);
+  };
+  f.name.addEventListener('input', () => { if (!touched) { f.username.value = slugify(f.name.value); check(); } });
+  f.username.addEventListener('input', () => { touched = true; f.username.value = f.username.value.toLowerCase().replace(/[^a-z0-9-]/g, ''); check(); });
+  f.addEventListener('submit', async e => {
+    e.preventDefault();
+    err.textContent = '';
+    const body = Object.fromEntries(new FormData(f));
+    body.agree = f.agree.checked;
+    body.phone = body.phone.replace(/\D/g, '').slice(-10);
+    const btn = document.getElementById('go'); btn.disabled = true; btn.textContent = 'Submitting…';
+    try {
+      const r = await fetch('/api/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || 'Something went wrong. Please try again.');
+      document.getElementById('doneUrl').textContent = d.admin_url.replace(/^https?:\/\//, '').replace(/\/admin$/, '');
+      document.getElementById('doneUser').textContent = d.username;
+      f.hidden = true; document.getElementById('done').hidden = false; window.scrollTo({ top: 0, behavior: 'smooth' });
+    } catch (ex) { err.textContent = ex.message; btn.disabled = false; btn.textContent = 'Submit for approval'; }
+  });
+})();
+</script>
+</body>
+</html>

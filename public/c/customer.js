@@ -34,6 +34,8 @@
   }
 
   let brand = { name: 'our shop' };
+  let campaign = {};
+  const prizeHtml = list => (list || []).map(p => `<div class="prize"><span class="rank">${p.rank}</span><span>${esc(p.name)}${p.quantity > 1 ? ` <i>× ${p.quantity}</i>` : ''}</span></div>`).join('');
   function applyBrand(b) {
     if (!b) return;
     brand = b;
@@ -68,9 +70,26 @@
     }
     applyBrand(data.brand);
     if (data.campaign) {
+      campaign = data.campaign;
       document.body.className = 'theme-' + data.campaign.theme;
       bind('headline', data.campaign.headline);
       bind('subline', data.campaign.subline);
+      if (campaign.terms) bind('terms', [brand.terms, campaign.terms].filter(Boolean).join(' '));
+      if (campaign.type === 'draw') {
+        $('#drawInfo').hidden = false;
+        $('#drawDate').textContent = fmtDate(campaign.draw_on);
+        $('#drawDesc').textContent = campaign.description || `Every coupon is one entry. Winners are picked on ${fmtDate(campaign.draw_on)}.`;
+        $('#drawPrizes').innerHTML = prizeHtml(campaign.prizes);
+        $('#drawWindow').textContent = campaign.ends_on ? `Last day to enter: ${fmtDate(campaign.ends_on)}` : '';
+        $('#claimForm h2').textContent = 'Enter the Lucky Draw';
+        $('#claimForm .muted').textContent = 'So we can reach you if you win.';
+        $('#claimForm .cta span').textContent = 'Enter the draw';
+      }
+    }
+    if (data.help_url) {
+      $('#helpLinks').hidden = false;
+      $('#helpLink').href = data.help_url;
+      $('#verifyLink').href = data.help_url.replace(/\/my\?coupon=.*$/, '/verify/' + data.code);
     }
     bind('code', fmtCode(data.code));
 
@@ -80,7 +99,10 @@
       case 'paused': return status('⏸️', 'This offer is paused', `${brand.name}'s Scratch & Win is taking a short break. Please keep your coupon and try again later.`);
       case 'void': return status('🚫', 'Coupon cancelled', 'This coupon is no longer active. Please ask our staff for a new one.');
       case 'expired': return status('⏰', 'This coupon has expired', `The offer ended on ${fmtDate(data.campaign.expires_on)}. Watch out for our next sweet surprise!`);
-      case 'mine': return showReward(data.reward, false);
+      case 'not_started': return status('🗓️', 'Not started yet', data.message || 'This campaign has not started yet. Please keep your coupon.');
+      case 'campaign_ended': return status('🏁', 'This campaign has ended', data.message || 'This campaign is over. Thank you for your interest!');
+      case 'campaign_paused': return status('⏸️', 'Campaign paused', data.message || 'Please keep your coupon and try again later.');
+      case 'mine': return data.reward.gift.kind === 'entry' ? showEntry(data.reward) : showReward(data.reward, false);
       case 'claimed': return status('🎁', 'Already claimed', 'This coupon has already been scratched. Each coupon can be used only once.',
         `Claimed by <b>${esc(data.claimed_by)}</b> (${esc(data.phone)})<br>on ${esc(fmtDate(data.claimed_at))}` + (data.gift ? `<br>Reward: <b>${esc(data.gift.name)}</b>` : ''));
       default: show('s-form');
@@ -118,13 +140,26 @@
       const out = await r.json();
       if (!r.ok) throw new Error(out.error || 'Something went wrong');
       store.set(tokenKey, out.token);
-      showReward(out.reward, true);
+      if (out.reward.gift.kind === 'entry') showEntry(out.reward, true); else showReward(out.reward, true);
     } catch (ex) {
       err.textContent = ex.message;
       btn.disabled = false;
       btn.firstElementChild.textContent = 'Unlock my scratch card';
     }
   });
+
+  // ---------------------------------------------------- Lucky Draw entry
+  function showEntry(rw, fresh) {
+    const first = (rw.name || '').split(' ')[0];
+    bind('commaName', first ? ', ' + first : '');
+    $('#entryCampaign').textContent = campaign.name || '';
+    $('#entryDraw').textContent = fmtDate(campaign.draw_on);
+    $('#entryPrizes').innerHTML = prizeHtml(campaign.prizes);
+    $('#entryVerify').href = $('#verifyLink').href || '/verify/' + code;
+    $('#entryShare').href = 'https://wa.me/?text=' + encodeURIComponent(`I just entered ${brand.name}'s Lucky Draw! 🎟️ Prizes include ${(campaign.prizes || []).map(p => p.name).slice(0, 3).join(', ')}. Get a coupon at ${brand.name} and enter too.`);
+    show('s-entry');
+    if (fresh && window.confetti) confetti({ particleCount: 120, spread: 75, origin: { y: .35 }, colors: [brand.color || '#F47216', '#F6C24A', '#FFFFFF'] });
+  }
 
   // ---------------------------------------------------- reward / scratch
   function showReward(rw, fresh) {

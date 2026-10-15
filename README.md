@@ -4,7 +4,7 @@ A multi-merchant platform (formerly "Scratch & Win"). Each bakery prints its own
 
 The **platform owner** (Super Admin) adds bakeries, sets their passwords and controls their plans. Every bakery sees only its own gifts, coupons and customers, and its customers see the bakery's own logo, colours and details.
 
-Live: https://navya-scratch-coupons.vercel.app (Navya Bakers was the first bakery).
+Live: https://genuinedraw.in (Super Admin, sign-up, verify, customer portal) and https://<merchant>.genuinedraw.in (each merchant's admin and coupons). Navya Bakers was the first merchant.
 
 ## Who uses what
 
@@ -12,7 +12,26 @@ Live: https://navya-scratch-coupons.vercel.app (Navya Bakers was the first baker
 |---|---|---|
 | `/super` | You, the platform owner | Add bakeries; set or reset their passwords; suspend them; set plan end dates and coupon limits; see each bakery's usage; **Open as bakery** to help them; delete a bakery |
 | `/admin` | Each merchant: the owner, plus staff logins | Dashboard, gifts, coupon batches and printing, customers, counter redemption, **outlets**, **team**, **activity log**, branding and settings |
-| `/c/CODE` | The bakery's customers | Scan → details → scratch → reward, in the bakery's branding |
+| `/c/CODE` | The bakery's customers | Scan → details → scratch → reward (Instant Win) or a draw entry (Lucky Draw), in the merchant's branding |
+| `/register` | New businesses | Sign up; the account waits for Super Admin approval |
+| `/verify` | Anyone | Check a coupon or reward code: genuine or not, its status, and its tamper-evident log fingerprint |
+| `/my` | Customers | Sign in with a WhatsApp code; see coupons from every shop; raise and follow complaints |
+
+### Campaigns (Phase 1)
+Coupon batches belong to a **campaign** with start and end dates, terms, and a type:
+- **Instant Win:** scratch and win one of the merchant's gifts on the spot.
+- **Lucky Draw:** each coupon is one entry; the campaign has a prize list and a draw date. (The draw itself is Phase 3.)
+
+Coupons only work between the campaign's start and end dates, and not while it is paused. Once customers have played, the campaign's type can't change and it can't be deleted. **Reports** show printed, scanned, played, winners, entries and redeemed per campaign and per outlet for any date range, with a CSV download.
+
+### Sign-up and approval (Phase 1)
+Businesses register at `/register` and start as **pending**. Super Admin → **Approvals** approves them (optionally setting a plan end date and coupon limit) or rejects them with a reason, which the merchant sees when they try to sign in.
+
+### Complaints (Phase 2)
+Customers raise tickets (`GD-XXXXXX`) from `/my`. The coupon, outlet, campaign and time are attached automatically; a photo is optional. The merchant answers from **Complaints**. A ticket not resolved within **24 hours** escalates to Super Admin → **Complaints** automatically, and the customer can escalate it at any time.
+
+### WhatsApp
+Set `WHATSAPP_WEBHOOK_URL` to an n8n / WAAU webhook. The app POSTs `{ to, type, message, data }` for: login codes (`otp`), new and updated complaints, escalations, sign-ups, approvals and rejections. Without it, nothing is sent; locally the login code is shown on screen, and on Vercel the customer login says it is being set up (set `OTP_DEV_MODE=1` to show codes on screen there too, for testing only).
 
 ### Merchant staff (Phase 0)
 | Role | Can do |
@@ -53,6 +72,9 @@ npm start
 | `DATABASE_URL` | yes | Neon Postgres connection string |
 | `SESSION_SECRET` | recommended | Signs login cookies (otherwise a secret stored in the database is used) |
 | `SUPER_ADMIN_PASSWORD` | first run | Initial Super Admin password. Without it a random one is printed in the server log on first start |
+| `WHATSAPP_WEBHOOK_URL` | for WhatsApp | n8n / WAAU webhook that delivers WhatsApp messages (login codes, complaint updates) |
+| `SUPER_WHATSAPP` | optional | Super Admin's WhatsApp number for sign-up and escalation alerts |
+| `OTP_DEV_MODE` | testing only | `1` shows customer login codes on screen when no webhook is set |
 
 **Forgot the Super Admin password?** Put a new one (10+ characters) in `SUPER_ADMIN_PASSWORD` in `.env.local` and run `npm run super:password`.
 
@@ -67,7 +89,11 @@ Tables are defined in [`db/schema.sql`](db/schema.sql) and created or updated au
 | `staff` | Manager and counter logins |
 | `audit_log` | Hash-chained activity log (never updated) |
 | `gifts` | Each bakery's prizes, with chance, stock and validity |
-| `batches` | Each print run of coupons |
+| `campaigns` | Instant Win / Lucky Draw campaigns with dates, terms and status |
+| `campaign_prizes` | A Lucky Draw's announced prizes |
+| `batches` | Each print run of coupons, inside a campaign |
+| `complaints`, `complaint_messages` | Customer tickets and their conversation |
+| `otp_codes` | Hashed one-time login codes for the customer portal |
 | `coupons` | Every printed coupon, with the customer's details, what they won, and claim and redeem times |
 | `settings` | Platform values (session secret, Super Admin password hash) |
 
@@ -82,7 +108,6 @@ Before a bakery prints real coupons, check the QR web address in its **Settings*
 
 ## Ideas for next versions
 
-- Each bakery on its own web address (custom domain or subdomain)
-- Staff logins per bakery (counter-only access for redemption)
+- Phase 3: the transparent Lucky Draw itself (seeded, verifiable winner selection, public winners page)
 - Billing reminders when a plan is close to its end date
-- WhatsApp OTP check of the mobile number, and automatic WhatsApp messages with the reward code
+- WhatsApp message with the reward code right after a win

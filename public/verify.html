@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#14213D">
+<title>Verify a coupon · Genuine Draw</title>
+<meta name="description" content="Check that a Genuine Draw coupon or reward code is real, and what happened to it.">
+<link rel="icon" href="/img/platform-icon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Albert+Sans:wght@400;500;600;700;800;900&family=Fraunces:opsz,wght@9..144,800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/admin/admin.css">
+<link rel="stylesheet" href="/portal.css">
+</head>
+<body class="portal">
+  <header class="p-top">
+    <a class="p-brand" href="/verify"><img src="/img/platform-icon.svg" alt=""><span>Genuine Draw</span></a>
+    <nav class="p-links"><a href="/verify" class="on">Verify</a><a href="/my">My coupons</a><a href="/register">For businesses</a></nav>
+  </header>
+  <main class="p-wrap">
+    <div class="p-hero">
+      <h1>Is this coupon genuine?</h1>
+      <p>Enter the code printed on the coupon, or a reward code, to see its real status.</p>
+    </div>
+    <form class="p-card" id="f">
+      <div class="v-search">
+        <input class="input" id="code" placeholder="e.g. 7K2M-QX9P" maxlength="12" autocomplete="off" spellcheck="false" autofocus>
+        <button class="btn primary">Check</button>
+      </div>
+      <p class="p-err" id="err"></p>
+    </form>
+    <div id="out"></div>
+  </main>
+  <footer class="p-foot"><img src="/img/platform-icon.svg" alt="">Every play is written to a tamper-evident log. Problem with a coupon? <a href="/my">Raise a complaint</a></footer>
+<script>
+(() => {
+  const $ = s => document.querySelector(s);
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const toDate = s => s ? new Date(s.length > 10 ? s.replace(' ', 'T') + 'Z' : s + 'T00:00:00') : null;
+  const fmtDate = s => s ? toDate(s).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+  const fmtTime = s => s ? toDate(s).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
+  const fmtCode = c => c && c.length === 8 ? c.slice(0, 4) + '-' + c.slice(4) : c;
+  const STATUS = {
+    unused: ['good', '✅', 'Genuine and unused', 'This coupon is real and has not been played yet.'],
+    claimed: ['info', '🎟️', 'Genuine, already played', 'This coupon is real and has been used once. It cannot be played again.'],
+    redeemed: ['good', '🎁', 'Genuine, prize handed over', 'This coupon was played and its prize has been collected.'],
+    void: ['bad', '🚫', 'Cancelled by the shop', 'The shop has cancelled this coupon. It cannot be played.'],
+    expired: ['warn', '⏰', 'Genuine but expired', 'This coupon was never played and has now expired.'],
+    not_started: ['warn', '🗓️', 'Genuine, campaign not started', ''],
+    campaign_ended: ['warn', '🏁', 'Genuine, campaign ended', ''],
+    campaign_paused: ['warn', '⏸️', 'Genuine, campaign paused', ''],
+  };
+  async function check(code) {
+    code = String(code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    $('#err').textContent = ''; $('#out').innerHTML = '';
+    if (code.length < 6) { $('#err').textContent = 'Please enter the full code.'; return; }
+    history.replaceState(null, '', '/verify/' + code);
+    const r = await fetch('/api/verify/' + code).then(async r => ({ ok: r.ok, d: await r.json() })).catch(() => null);
+    if (!r) { $('#err').textContent = 'No connection. Please try again.'; return; }
+    if (!r.ok) { $('#err').textContent = r.d.error || 'Something went wrong'; return; }
+    const d = r.d;
+    if (!d.found) {
+      $('#out').innerHTML = `<div class="p-card"><div class="v-status bad"><span class="ico">⚠️</span><div>No coupon with this code<small>Check the code again. If someone gave you this coupon as genuine, please report it.</small></div></div>
+        <a class="btn" href="/my">Report a problem</a></div>`;
+      return;
+    }
+    const [cls, ico, title, text] = STATUS[d.status] || ['info', 'ℹ️', d.status, ''];
+    const c = d.campaign;
+    $('#out').innerHTML = `<div class="p-card">
+      <div class="v-head"><div class="v-logo" style="${d.shop.logo ? '' : 'background:' + esc(d.shop.color)}">${d.shop.logo ? `<img src="${esc(d.shop.logo)}" alt="">` : esc(d.shop.name[0])}</div>
+        <div><b style="font-size:18px">${esc(d.shop.name)}</b><div class="hint" style="margin:2px 0 0">${d.shop.verified ? '✔ Verified Genuine Draw merchant' : 'Merchant account currently paused'}</div></div></div>
+      <div class="v-status ${cls}"><span class="ico">${ico}</span><div>${esc(title)}<small>${esc(d.status_note || text)}</small></div></div>
+      <dl class="v-rows">
+        <dt>${d.matched === 'reward' ? 'Coupon (from reward code)' : 'Coupon'}</dt><dd>${esc(fmtCode(d.code))} · #${d.serial}</dd>
+        <dt>Campaign</dt><dd>${esc(c.name)} · ${c.type === 'draw' ? 'Lucky Draw' : 'Instant Win'}</dd>
+        ${c.starts_on || c.ends_on ? `<dt>Runs</dt><dd>${fmtDate(c.starts_on) || 'any time'} → ${fmtDate(c.ends_on) || 'no end date'}</dd>` : ''}
+        ${c.type === 'draw' ? `<dt>Draw date</dt><dd>${fmtDate(c.draw_on)}</dd>` : ''}
+        ${d.claimed_at ? `<dt>Played</dt><dd>${fmtTime(d.claimed_at)} by ${esc(d.claimed_by)} (${esc(d.phone)})</dd>` : ''}
+        ${d.result ? `<dt>Result</dt><dd>${esc(d.result)}</dd>` : ''}
+        ${d.reward_expires && !d.redeemed_at ? `<dt>Prize valid till</dt><dd>${fmtDate(d.reward_expires)}</dd>` : ''}
+        ${d.redeemed_at ? `<dt>Prize collected</dt><dd>${fmtTime(d.redeemed_at)}</dd>` : ''}
+      </dl>
+      ${c.type === 'draw' && c.prizes.length ? `<p class="label">Prizes</p><div class="prize-list" style="display:flex;flex-wrap:wrap;gap:6px">${c.prizes.map(p => `<span class="pill bumper">${p.rank}. ${esc(p.name)}${p.quantity > 1 ? ' ×' + p.quantity : ''}</span>`).join('')}</div>` : ''}
+      ${d.record ? `<div class="p-note">🔒 This result was written to the tamper-evident log on ${fmtTime(d.record.at)}. Its fingerprint:<div class="v-hash">${esc(d.record.hash)}</div>If anyone changed the record, this fingerprint would no longer match.</div>` : ''}
+      <p class="hint" style="margin-top:14px">Something wrong? <a href="/my?coupon=${esc(d.code)}">Raise a complaint</a></p>
+    </div>`;
+  }
+  $('#f').addEventListener('submit', e => { e.preventDefault(); check($('#code').value); });
+  const fromUrl = location.pathname.split('/')[2] || new URLSearchParams(location.search).get('code');
+  if (fromUrl) { $('#code').value = fmtCode(decodeURIComponent(fromUrl).toUpperCase()); check(fromUrl); }
+})();
+</script>
+</body>
+</html>

@@ -194,3 +194,27 @@ body {
 .seal { display: block; width: fit-content; max-width: 100%; margin: 10px auto 0; padding: 7px 14px; border-radius: 14px; background: #14213D; color: #E8EDF7; font-size: 11.5px; line-height: 1.5; text-align: center; text-decoration: none; }
 .seal img { width: 16px; height: 16px; border-radius: 4px; vertical-align: -3px; margin-right: 5px; }
 .seal b { color: #F7CF6B; }
+
+/* ---------- Lucky Draw ---------- */
+.draw-info { margin-bottom: 14px; display: grid; gap: 10px; }
+.di-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.di-badge { background: linear-gradient(135deg, #F6C24A, #E9A92A); color: #4A3200; font-weight: 800; font-size: 13px; padding: 5px 12px; border-radius: 99px; }
+.di-date { font-size: 13.5px; }
+.draw-info p { margin: 0; }
+.prizes { display: grid; gap: 8px; }
+.prize { display: flex; align-items: center; gap: 10px; font-weight: 700; padding: 8px 10px; border-radius: 12px; background: #FFF8E6; }
+.prize .rank { display: grid; place-items: center; width: 28px; height: 28px; flex: none; border-radius: 50%; background: linear-gradient(135deg, #F6C24A, #D99A12); color: #fff; font-size: 13px; font-weight: 900; }
+.prize i { font-style: normal; color: #8A6A1A; font-weight: 600; }
+.entry-wrap { text-align: center; display: grid; gap: 14px; }
+.entry-burst { font-size: 56px; animation: pop .6s cubic-bezier(.2, 1.6, .4, 1) both; }
+@keyframes pop { from { transform: scale(.2) rotate(-20deg); opacity: 0; } to { transform: none; opacity: 1; } }
+.entry-ticket { display: flex; justify-content: space-between; align-items: stretch; text-align: left; border-radius: 18px; overflow: hidden;
+  background: linear-gradient(135deg, var(--accent-2, #FF9A3C), var(--accent, #F47216)); color: #fff; box-shadow: 0 18px 34px -18px rgba(0, 0, 0, .45); }
+.entry-ticket small { display: block; opacity: .85; font-size: 12px; }
+.entry-ticket b { display: block; font-size: 24px; letter-spacing: 1.5px; margin: 2px 0; }
+.et-left { padding: 16px 18px; flex: 1; }
+.et-right { padding: 16px 18px; border-left: 2px dashed rgba(255, 255, 255, .55); min-width: 120px; }
+.et-right b { font-size: 16px; letter-spacing: 0; }
+.entry-wrap .card { text-align: left; }
+.help-links { display: block; font-size: 13px; margin-bottom: 8px; }
+.help-links a { color: inherit; font-weight: 700; }

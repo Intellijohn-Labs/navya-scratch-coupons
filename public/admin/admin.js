@@ -82,8 +82,8 @@
   }
   // Which pages each login can open (the server enforces the same rules).
   const ROLE_PAGES = {
-    owner: ['dashboard', 'gifts', 'coupons', 'batch', 'customers', 'redeem', 'outlets', 'team', 'activity', 'settings'],
-    manager: ['dashboard', 'gifts', 'coupons', 'batch', 'customers', 'redeem', 'outlets'],
+    owner: ['dashboard', 'campaigns', 'gifts', 'coupons', 'batch', 'customers', 'redeem', 'reports', 'complaints', 'outlets', 'team', 'activity', 'settings'],
+    manager: ['dashboard', 'campaigns', 'gifts', 'coupons', 'batch', 'customers', 'redeem', 'reports', 'complaints', 'outlets'],
     counter: ['redeem'],
   };
   const ROLE_LABEL = { owner: 'Owner', manager: 'Manager', counter: 'Counter staff' };
@@ -94,7 +94,30 @@
       : `${ME.user.name} · ${ROLE_LABEL[ME.role]}${ME.user.outlet ? ' · ' + ME.user.outlet.name : ''}`;
     $('#myPw').hidden = !!ME.impersonated;
   }
+  // The shop's colours theme the whole admin. Text colours flip automatically so light colours stay readable.
+  const lum = hex => {
+    const n = parseInt(String(hex).slice(1), 16), f = v => { v /= 255; return v <= .03928 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4; };
+    return .2126 * f((n >> 16) & 255) + .7152 * f((n >> 8) & 255) + .0722 * f(n & 255);
+  };
+  const rgba = (hex, a) => { const n = parseInt(hex.slice(1), 16); return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`; };
+  function applyTheme(t) {
+    const ok = v => /^#[0-9a-f]{6}$/i.test(v || '');
+    const c1 = ok(t.color) ? t.color : '#F47216', c2 = ok(t.color2) ? t.color2 : '#963B1F';
+    const st = document.documentElement.style, set = (k, v) => st.setProperty(k, v);
+    const lightBrand = lum(c1) > .45;
+    set('--orange', c1); set('--orange-2', shade(c1, .25)); set('--orange-soft', shade(c1, .9));
+    set('--on-brand', lightBrand ? '#2B1B14' : '#fff');
+    set('--glow', rgba(c1, .7)); set('--ring', rgba(c1, .16));
+    set('--brown', lum(c2) > .3 ? shade(c1, -.45) : c2);      // links and accents need to be dark enough to read
+    const lightSide = lum(c2) > .35;
+    set('--choco', lightSide ? c2 : shade(c2, -.5));            // sidebar: a deep version of a dark accent, a light accent as is
+    set('--side-ink', lightSide ? '#2B1B14' : '#F5E6DA'); set('--side-nav', lightSide ? '#3D2C24' : '#E9D6C9');
+    set('--side-muted', lightSide ? '#7D6A60' : '#A68C7C'); set('--side-small', lightSide ? '#7D6A60' : '#C9AE9D');
+    set('--side-line', lightSide ? 'rgba(0, 0, 0, .15)' : 'rgba(255, 255, 255, .18)');
+    set('--side-hover', lightSide ? 'rgba(0, 0, 0, .05)' : 'rgba(255, 255, 255, .06)');
+  }
   function applyBrand(t) {
+    applyTheme(t);
     document.title = `${t.name} · Genuine Draw`;
     $('#sideTitle').textContent = t.name;
     $('#sideName').textContent = [t.name, t.address].filter(Boolean).join(' · ');
@@ -143,7 +166,7 @@
     let [name, arg] = (location.hash.slice(1) || '').split('/');
     if (!canSee(name)) name = ROLE_PAGES[ME.role][0];
     document.querySelectorAll('#nav a').forEach(a => a.classList.toggle('on', a.dataset.r === (name === 'batch' ? 'coupons' : name)));
-    const pages = { dashboard, gifts, coupons, batch, customers, redeem, outlets, team, activity, settings };
+    const pages = { dashboard, campaigns, gifts, coupons, batch, customers, redeem, reports, complaints, outlets, team, activity, settings };
     view.innerHTML = '<div class="empty-state">Loading…</div>';
     try { await pages[name](arg); } catch (e) { if (e.message !== 'Please log in') view.innerHTML = `<div class="empty-state"><span>⚠️</span>${esc(e.message)}</div>`; }
     window.scrollTo(0, 0);
@@ -399,7 +422,7 @@
             <div class="batch-prev">${renderCoupon({ code: 'DEMO1234', serial: 1, theme: b.theme, headline: b.headline, subline: b.subline, expires_on: b.expires_on, baseUrl: baseUrlCache, brand: ME.tenant, treat: treatCache })}</div>
             <div>
               <h4>${esc(b.name)} ${b.sample ? '<span class="pill bumper">Demo</span>' : ''}</h4>
-              <div class="meta"><span>📍 ${esc(b.outlet_name || 'All outlets')}</span><span>${THEMES[b.theme][0]}</span><span>Created ${fmtDate(b.created_at)}</span><span>${b.expires_on ? 'Expires ' + fmtDate(b.expires_on) : 'No expiry'}</span></div>
+              <div class="meta">${b.campaign_name ? `<span>${b.campaign_type === 'draw' ? '🎟️' : '⚡'} ${esc(b.campaign_name)}</span>` : ''}<span>📍 ${esc(b.outlet_name || 'All outlets')}</span><span>${THEMES[b.theme][0]}</span><span>Created ${fmtDate(b.created_at)}</span><span>${b.expires_on ? 'Expires ' + fmtDate(b.expires_on) : 'No expiry'}</span></div>
               <div class="funnel">
                 <div><b>${b.count}</b>Printed</div><div><b>${b.scanned || 0}</b>Scanned</div>
                 <div><b>${b.claimed || 0}</b>Scratched</div><div><b>${b.redeemed || 0}</b>Redeemed</div>
@@ -421,8 +444,10 @@
     });
   }
 
-  async function batchForm() {
-    const outlets = (await api('/outlets')).filter(o => o.active);
+  async function batchForm(campaignId) {
+    const [outlets, camps] = await Promise.all([api('/outlets').then(l => l.filter(o => o.active)), api('/campaigns')]);
+    const open = camps.filter(c => c.status !== 'drawn');
+    const pre = typeof campaignId === 'number' ? campaignId : (open.find(c => c.status === 'active') || {}).id || '';
     const in60 = new Date(Date.now() + 60 * 86400000).toISOString().slice(0, 10);
     const f = { theme: 'orange' };
     const m = modal(`
@@ -430,7 +455,11 @@
       <p class="hint" style="margin:0">Every coupon gets its own QR code and can be scratched only once.</p>
       <div class="create-grid">
         <div>
-          <label class="label">Campaign name <i>(for you)</i></label>
+          <label class="label">Campaign</label>
+          <select class="input" id="bCamp">${open.map(c => `<option value="${c.id}" ${c.id === pre ? 'selected' : ''}>${esc(c.name)} · ${c.type === 'draw' ? 'Lucky Draw' : 'Instant Win'}</option>`).join('')}
+            <option value="" ${pre ? '' : 'selected'}>➕ New Instant Win campaign (same name as this batch)</option></select>
+          <p class="hint">Create Lucky Draws and dated campaigns on the <a href="#campaigns">Campaigns</a> page.</p>
+          <label class="label">Batch name <i>(for you)</i></label>
           <input class="input" id="bName" placeholder="e.g. Christmas 2026 – Angamaly" maxlength="60">
           <div class="grid2">
             <div><label class="label">How many coupons?</label><input class="input" id="bCount" type="number" min="1" max="1000" value="48"><p class="hint" id="bSheets"></p></div>
@@ -479,7 +508,7 @@
     $('#bSave', el).onclick = async () => {
       const btn = $('#bSave', el); btn.disabled = true;
       try {
-        const r = await api('/batches', { method: 'POST', body: { name: $('#bName', el).value, count: $('#bCount', el).value, expires_on: $('#bExp', el).value, headline: $('#bHead', el).value, subline: $('#bSub', el).value, theme: f.theme, outlet_id: $('#bOutlet', el).value } });
+        const r = await api('/batches', { method: 'POST', body: { campaign_id: $('#bCamp', el).value, name: $('#bName', el).value, count: $('#bCount', el).value, expires_on: $('#bExp', el).value, headline: $('#bHead', el).value, subline: $('#bSub', el).value, theme: f.theme, outlet_id: $('#bOutlet', el).value } });
         m.close(); toast('Batch created ✨');
         location.href = "/admin/print/" + r.id;
         coupons();
@@ -801,6 +830,240 @@
   }
 
   // ---------------------------------------------------------------- activity log
+  // ---------------------------------------------------------------- campaigns
+  const TYPE_LABEL = { instant: '⚡ Instant Win', draw: '🎟️ Lucky Draw' };
+  const campStatus = c => {
+    const t = new Date().toISOString().slice(0, 10);
+    if (c.status === 'drawn') return ['redeemed', 'Drawn'];
+    if (c.status === 'paused') return ['off', 'Paused'];
+    if (c.starts_on && c.starts_on > t) return ['bumper', 'Starts ' + fmtDate(c.starts_on)];
+    if (c.ends_on && c.ends_on < t) return ['void', 'Ended'];
+    return ['claimed', 'Running'];
+  };
+  async function campaigns() {
+    const list = await api('/campaigns');
+    view.innerHTML = `
+      <div class="page-head">
+        <div><h1>Campaigns</h1><p>Group your coupons into offers. <b>Instant Win</b>: customers scratch and win a gift on the spot. <b>Lucky Draw</b>: every coupon is an entry, and winners are picked on the draw date.</p></div>
+        <button class="btn primary" id="newCamp">+ New campaign</button>
+      </div>
+      <div class="camp-grid">
+        ${list.length ? list.map(c => {
+          const [cls, label] = campStatus(c);
+          return `<div class="card camp">
+            <div class="camp-top"><span class="pill ${c.type === 'draw' ? 'bumper' : 'new'}">${TYPE_LABEL[c.type]}</span><span class="pill ${cls}">${esc(label)}</span></div>
+            <h4>${esc(c.name)}</h4>
+            <div class="meta"><span>📅 ${c.starts_on ? fmtDate(c.starts_on) : 'Any time'} → ${c.ends_on ? fmtDate(c.ends_on) : 'no end date'}</span>
+              ${c.type === 'draw' ? `<span>🏆 Draw on <b>${fmtDate(c.draw_on)}</b></span>` : ''}</div>
+            ${c.type === 'draw' && c.prizes.length ? `<div class="prize-list">${c.prizes.map(p => `<span><b>${p.rank}</b>${esc(p.name)}${p.quantity > 1 ? ' ×' + p.quantity : ''}</span>`).join('')}</div>` : ''}
+            <div class="funnel">
+              <div><b>${c.printed}</b>Printed</div><div><b>${c.scanned}</b>Scanned</div>
+              ${c.type === 'draw' ? `<div><b>${c.entries}</b>Entries</div>` : `<div><b>${c.claimed}</b>Scratched</div><div><b>${c.redeemed}</b>Redeemed</div>`}
+              <div><b>${c.customers}</b>Customers</div>
+            </div>
+            <div class="batch-actions">
+              <button class="btn sm primary" data-batch="${c.id}">+ Coupons</button>
+              <button class="btn sm" data-edit="${c.id}">Edit</button>
+              <a class="btn sm" href="#reports/${c.id}">Report</a>
+              ${c.status !== 'drawn' ? `<button class="btn sm" data-pause="${c.id}">${c.status === 'paused' ? 'Resume' : 'Pause'}</button>` : ''}
+              ${!c.claimed ? `<button class="btn sm danger" data-del="${c.id}">Delete</button>` : ''}
+            </div>
+          </div>`;
+        }).join('') : '<div class="card empty-state"><span>🎯</span>No campaigns yet. Create one, then print coupons for it.</div>'}
+      </div>`;
+    $('#newCamp').onclick = () => campaignForm(null);
+    const find = id => list.find(c => c.id === +id);
+    view.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => campaignForm(find(b.dataset.edit)));
+    view.querySelectorAll('[data-batch]').forEach(b => b.onclick = () => batchForm(+b.dataset.batch));
+    view.querySelectorAll('[data-pause]').forEach(b => b.onclick = async () => {
+      const c = find(b.dataset.pause);
+      try { await api('/campaigns/' + c.id, { method: 'PUT', body: { status: c.status === 'paused' ? 'active' : 'paused' } }); toast(c.status === 'paused' ? 'Campaign resumed' : 'Campaign paused'); campaigns(); }
+      catch (e) { toast(e.message); }
+    });
+    view.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => {
+      if (!confirm('Delete this campaign and its unused coupons?')) return;
+      try { await api('/campaigns/' + b.dataset.del, { method: 'DELETE' }); toast('Campaign deleted'); campaigns(); } catch (e) { toast(e.message); }
+    });
+  }
+
+  function campaignForm(c) {
+    const today = new Date().toISOString().slice(0, 10);
+    const plus = d => new Date(Date.now() + d * 86400000).toISOString().slice(0, 10);
+    const f = c ? { ...c, prizes: c.prizes.map(p => ({ ...p })) } : { type: 'instant', starts_on: today, ends_on: plus(30), draw_on: plus(32), prizes: [{ rank: 1, name: '', quantity: 1 }] };
+    const played = c && c.claimed > 0;
+    const m = modal(`
+      <h2>${c ? 'Edit campaign' : 'New campaign'}</h2>
+      <label class="label">Type</label>
+      <div class="seg" id="cType">
+        <button type="button" data-t="instant">⚡ Instant Win</button><button type="button" data-t="draw">🎟️ Lucky Draw</button>
+      </div>
+      <p class="hint" id="cTypeHint"></p>
+      <label class="label">Campaign name</label>
+      <input class="input" id="cName" maxlength="80" placeholder="e.g. Diwali Mega Draw 2026" value="${esc(f.name || '')}">
+      <div class="grid3">
+        <div><label class="label">Starts</label><input class="input" type="date" id="cStart" value="${esc(f.starts_on || '')}"></div>
+        <div><label class="label">Ends <i>(last day to play)</i></label><input class="input" type="date" id="cEnd" value="${esc(f.ends_on || '')}"></div>
+        <div class="draw-only"><label class="label">Draw date</label><input class="input" type="date" id="cDraw" value="${esc(f.draw_on || '')}"></div>
+      </div>
+      <label class="label">Short description <i>(shown to customers)</i></label>
+      <input class="input" id="cDesc" maxlength="500" value="${esc(f.description || '')}" placeholder="e.g. Buy for ₹500 and get a coupon">
+      <div class="draw-only">
+        <label class="label">Prizes <i>(rank 1 = first prize)</i></label>
+        <div id="cPrizes"></div>
+        <button type="button" class="btn sm" id="cAddPrize">+ Add prize</button>
+      </div>
+      <p class="hint instant-only">Instant Win uses the gifts on your <a href="#gifts">Gifts</a> page.</p>
+      <label class="label">Terms &amp; conditions <i>(optional, shown to customers)</i></label>
+      <textarea class="input" id="cTerms" maxlength="2000" placeholder="e.g. One entry per coupon. Winners must show ID.">${esc(f.terms || '')}</textarea>
+      <p class="err" id="cErr" style="color:var(--red);font-weight:600;min-height:18px;margin:12px 0 0"></p>
+      <div class="modal-foot"><button class="btn" id="cCancel">Cancel</button><button class="btn primary" id="cSave">${c ? 'Save' : 'Create campaign'}</button></div>`, { wide: true });
+    const el = m.el;
+    const drawPrizes = () => {
+      $('#cPrizes', el).innerHTML = f.prizes.map((p, i) => `<div class="prize-row">
+        <input class="input" data-k="rank" data-i="${i}" type="number" min="1" value="${p.rank}" title="Rank">
+        <input class="input" data-k="name" data-i="${i}" maxlength="80" placeholder="Prize, e.g. Smart TV" value="${esc(p.name)}">
+        <input class="input" data-k="quantity" data-i="${i}" type="number" min="1" value="${p.quantity}" title="How many winners">
+        <button type="button" class="btn sm danger" data-rm="${i}" aria-label="Remove">✕</button></div>`).join('');
+      el.querySelectorAll('.prize-row input').forEach(inp => inp.oninput = () => { f.prizes[inp.dataset.i][inp.dataset.k] = inp.value; });
+      el.querySelectorAll('[data-rm]').forEach(b => b.onclick = () => { f.prizes.splice(+b.dataset.rm, 1); drawPrizes(); });
+    };
+    const setType = t => {
+      if (played && t !== f.type) return toast('Customers have already played, so the type is fixed.');
+      f.type = t;
+      el.querySelectorAll('#cType button').forEach(b => b.classList.toggle('on', b.dataset.t === t));
+      el.querySelectorAll('.draw-only').forEach(x => { x.hidden = t !== 'draw'; });
+      el.querySelectorAll('.instant-only').forEach(x => { x.hidden = t === 'draw'; });
+      $('#cTypeHint', el).textContent = t === 'draw'
+        ? 'Each coupon scanned is one entry. Customers see the prizes and draw date; winners are picked on the draw date.'
+        : 'Customers scratch the coupon and instantly see what they won.';
+    };
+    el.querySelectorAll('#cType button').forEach(b => b.onclick = () => setType(b.dataset.t));
+    $('#cAddPrize', el).onclick = () => { f.prizes.push({ rank: f.prizes.length + 1, name: '', quantity: 1 }); drawPrizes(); };
+    setType(f.type); drawPrizes();
+    $('#cCancel', el).onclick = m.close;
+    $('#cSave', el).onclick = async () => {
+      const body = { name: $('#cName', el).value, type: f.type, starts_on: $('#cStart', el).value, ends_on: $('#cEnd', el).value, draw_on: $('#cDraw', el).value,
+        description: $('#cDesc', el).value, terms: $('#cTerms', el).value, prizes: f.type === 'draw' ? f.prizes.filter(p => String(p.name).trim()) : [] };
+      try {
+        if (c) await api('/campaigns/' + c.id, { method: 'PUT', body });
+        else await api('/campaigns', { method: 'POST', body });
+        m.close(); toast(c ? 'Campaign saved' : 'Campaign created 🎉'); campaigns();
+      } catch (e) { $('#cErr', el).textContent = e.message; }
+    };
+    setTimeout(() => $('#cName', el).focus(), 50);
+  }
+
+  // ---------------------------------------------------------------- reports
+  async function reports(campaignId) {
+    const camps = await api('/campaigns');
+    const firstOfMonth = new Date().toISOString().slice(0, 8) + '01', today = new Date().toISOString().slice(0, 10);
+    const st = { from: firstOfMonth, to: today, campaign: campaignId || '' };
+    view.innerHTML = `
+      <div class="page-head"><div><h1>Reports</h1><p>How each campaign and outlet is doing over any period.</p></div>
+        <button class="btn" id="rCsv">⬇️ Download CSV</button></div>
+      <div class="card filters">
+        <div><label class="label">From</label><input class="input" type="date" id="rFrom" value="${st.from}"></div>
+        <div><label class="label">To</label><input class="input" type="date" id="rTo" value="${st.to}"></div>
+        <div><label class="label">Campaign</label><select class="input" id="rCamp"><option value="">All campaigns</option>${camps.map(c => `<option value="${c.id}" ${String(c.id) === String(st.campaign) ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></div>
+        <div class="quick"><button class="btn sm" data-q="7">Last 7 days</button><button class="btn sm" data-q="30">Last 30 days</button><button class="btn sm" data-q="all">All time</button></div>
+      </div>
+      <div id="rBody"><div class="empty-state">Loading…</div></div>`;
+    const qs = () => `from=${st.from}&to=${st.to}${st.campaign ? '&campaign_id=' + st.campaign : ''}`;
+    const load = async () => {
+      const r = await api('/reports?' + qs());
+      const t = r.totals, pct = (a, b) => b ? Math.round(a / b * 100) + '%' : '—';
+      const maxDay = Math.max(1, ...r.days.map(d => d.claimed));
+      $('#rBody').innerHTML = `
+        <div class="kpis">
+          <div class="kpi"><span>Printed</span><b>${t.printed}</b><small>coupons made in this period</small></div>
+          <div class="kpi"><span>Scanned</span><b>${t.scanned}</b><small>first scans</small></div>
+          <div class="kpi"><span>Played</span><b>${t.claimed}</b><small>${t.entries ? t.entries + ' draw entries' : 'scratched'}</small></div>
+          <div class="kpi"><span>Winners</span><b>${t.winners}</b><small>instant prizes</small></div>
+          <div class="kpi"><span>Redeemed</span><b>${t.redeemed}</b><small>${pct(t.redeemed, t.winners)} of winners</small></div>
+          <div class="kpi"><span>Customers</span><b>${t.customers}</b><small>${t.optins} opted in</small></div>
+        </div>
+        <div class="card" style="margin-bottom:18px"><h3>Plays per day</h3>
+          ${r.days.length ? `<div class="daybars">${r.days.map(d => `<div title="${esc(d.d)}: ${d.claimed} played, ${d.redeemed} redeemed"><i style="height:${Math.max(4, d.claimed / maxDay * 100)}%"></i><small>${d.d.slice(8)}</small></div>`).join('')}</div>` : '<div class="empty-state">No plays in this period</div>'}
+        </div>
+        <h3 class="sec">By campaign</h3>
+        <div class="table-wrap"><table class="rtable">
+          <thead><tr><th>Campaign</th><th>Printed</th><th>Scanned</th><th>Played</th><th>Winners / entries</th><th>Redeemed</th><th>Customers</th></tr></thead>
+          <tbody>${r.campaigns.map(c => `<tr>
+            <td data-label="Campaign"><b>${esc(c.name)}</b><small>${TYPE_LABEL[c.type]}${c.type === 'draw' ? ' · draw ' + fmtDate(c.draw_on) : ''}</small></td>
+            <td data-label="Printed">${c.printed}</td><td data-label="Scanned">${c.scanned}</td><td data-label="Played">${c.claimed}</td>
+            <td data-label="Winners / entries">${c.type === 'draw' ? c.entries + ' entries' : c.winners}</td>
+            <td data-label="Redeemed">${c.redeemed}</td><td data-label="Customers">${c.customers}</td></tr>`).join('') || '<tr><td colspan="7" class="empty-state">No campaigns</td></tr>'}</tbody>
+        </table></div>
+        <h3 class="sec">By outlet</h3>
+        <div class="table-wrap"><table class="rtable">
+          <thead><tr><th>Outlet</th><th>Coupons handed out</th><th>Played</th><th>Winners</th><th>Redeemed here</th></tr></thead>
+          <tbody>${r.outlets.map(o => `<tr><td data-label="Outlet"><b>${esc(o.name)}</b></td><td data-label="Handed out">${o.issued}</td>
+            <td data-label="Played">${o.claimed}</td><td data-label="Winners">${o.winners}</td><td data-label="Redeemed here">${o.redeemed}</td></tr>`).join('')}</tbody>
+        </table></div>
+        <p class="hint">Coupons printed for "All outlets" aren't counted against a single outlet.</p>
+        ${r.gifts.length ? `<h3 class="sec">Results</h3><div class="table-wrap"><table class="rtable"><thead><tr><th>Result</th><th>Times</th><th>Redeemed</th></tr></thead>
+          <tbody>${r.gifts.map(g => `<tr><td data-label="Result">${esc(g.name)}</td><td data-label="Times">${g.n}</td><td data-label="Redeemed">${g.kind === 'prize' ? g.redeemed : '—'}</td></tr>`).join('')}</tbody></table></div>` : ''}`;
+    };
+    const reload = () => load().catch(e => { $('#rBody').innerHTML = `<div class="empty-state">${esc(e.message)}</div>`; });
+    $('#rFrom').onchange = e => { st.from = e.target.value; reload(); };
+    $('#rTo').onchange = e => { st.to = e.target.value; reload(); };
+    $('#rCamp').onchange = e => { st.campaign = e.target.value; reload(); };
+    view.querySelectorAll('[data-q]').forEach(b => b.onclick = () => {
+      st.to = today; st.from = b.dataset.q === 'all' ? '2020-01-01' : new Date(Date.now() - (+b.dataset.q - 1) * 86400000).toISOString().slice(0, 10);
+      $('#rFrom').value = st.from; $('#rTo').value = st.to; reload();
+    });
+    $('#rCsv').onclick = () => { location.href = '/api/admin/reports.csv?' + qs(); };
+    await load();
+  }
+
+  // ---------------------------------------------------------------- complaints
+  const C_STATUS = COMPLAINT_STATUS, C_CAT = COMPLAINT_CAT;
+  async function complaints() {
+    const st = { status: '' };
+    view.innerHTML = `
+      <div class="page-head"><div><h1>Complaints</h1><p>Customers can raise a ticket from their phone. Please reply within <b>24 hours</b>, after that it goes to the Genuine Draw team.</p></div></div>
+      <div class="seg" id="kSeg" style="max-width:520px;margin-bottom:16px">
+        <button data-s="" class="on">All</button><button data-s="open">Open</button><button data-s="in_progress">In progress</button><button data-s="resolved">Resolved</button>
+      </div>
+      <div id="kList"></div>`;
+    const load = async () => {
+      const list = await api('/complaints' + (st.status ? '?status=' + st.status : ''));
+      $('#kList').innerHTML = list.length ? `<div class="table-wrap"><table class="rtable">
+        <thead><tr><th>Ticket</th><th>Problem</th><th>Customer</th><th>Status</th><th>Updated</th><th></th></tr></thead>
+        <tbody>${list.map(k => `<tr>
+          <td data-label="Ticket"><b>${esc(k.ticket_no)}</b>${k.coupon_code ? `<small>Coupon ${esc(fmtCode(k.coupon_code))}</small>` : ''}</td>
+          <td data-label="Problem">${esc(C_CAT[k.category])}<small>${esc((k.last_message || '').slice(0, 80))}</small></td>
+          <td data-label="Customer">${esc(k.customer_name || '—')}<small>${esc(fmtPhone(k.phone))}</small></td>
+          <td data-label="Status"><span class="pill ${C_STATUS[k.status][0]}">${C_STATUS[k.status][1]}</span>${k.escalated ? ' <span class="pill void">Escalated</span>' : ''}</td>
+          <td data-label="Updated">${ago(k.updated_at)}</td>
+          <td class="td-actions"><button class="btn sm primary" data-open="${k.id}">Open</button></td></tr>`).join('')}</tbody></table></div>`
+        : '<div class="card empty-state"><span>🙌</span>No complaints here</div>';
+      view.querySelectorAll('[data-open]').forEach(b => b.onclick = () => complaintModal(b.dataset.open, load));
+    };
+    view.querySelectorAll('#kSeg button').forEach(b => b.onclick = () => {
+      st.status = b.dataset.s; view.querySelectorAll('#kSeg button').forEach(x => x.classList.toggle('on', x === b)); load();
+    });
+    await load();
+  }
+  async function complaintModal(id, after) {
+    const k = await api('/complaints/' + id);
+    const m = modal(`<h2>Complaint</h2>${complaintThread(k)}
+      <label class="label">Your reply <i>(the customer gets it on WhatsApp)</i></label>
+      <textarea class="input" id="kBody" maxlength="2000" placeholder="Write to the customer…"></textarea>
+      <label class="label">Status</label>
+      <select class="input" id="kStatus">${Object.entries(C_STATUS).map(([v, [, l]]) => `<option value="${v}" ${v === k.status ? 'selected' : ''}>${l}</option>`).join('')}</select>
+      <p class="err" id="kErr" style="color:var(--red);font-weight:600;min-height:18px;margin:12px 0 0"></p>
+      <div class="modal-foot"><button class="btn" id="kClose">Close</button><button class="btn primary" id="kSend">Send</button></div>`, { wide: true });
+    $('#kClose', m.el).onclick = m.close;
+    $('#kSend', m.el).onclick = async () => {
+      const status = $('#kStatus', m.el).value;
+      try {
+        await api(`/complaints/${id}/reply`, { method: 'POST', body: { body: $('#kBody', m.el).value, status: status !== k.status ? status : undefined } });
+        m.close(); toast('Reply sent'); after && after();
+      } catch (e) { $('#kErr', m.el).textContent = e.message; }
+    };
+  }
+
   async function activity() {
     view.innerHTML = `
       <div class="page-head"><div><h1>Activity log</h1><p>Everything that happened in your account: who did it and when. Entries can't be edited or deleted.</p></div></div>
@@ -915,8 +1178,9 @@
     };
     $('#logoClear').onclick = () => { logo = ''; drawLogo(); };
     for (const [pick, text] of [['#sColor', '#sColorT'], ['#sColor2', '#sColor2T']]) {
-      $(pick).oninput = () => { $(text).value = $(pick).value; };
-      $(text).oninput = () => { if (/^#[0-9a-f]{6}$/i.test($(text).value)) $(pick).value = $(text).value; };
+      const preview = () => applyTheme({ color: $('#sColorT').value, color2: $('#sColor2T').value });   // see it before saving
+      $(pick).oninput = () => { $(text).value = $(pick).value; preview(); };
+      $(text).oninput = () => { if (/^#[0-9a-f]{6}$/i.test($(text).value)) { $(pick).value = $(text).value; preview(); } };
     }
     $('#sSave').onclick = async () => {
       try {

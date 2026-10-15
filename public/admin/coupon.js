@@ -72,6 +72,13 @@ window.ACTIVITY = {
   'merchant.password_reset': ['🔒', 'Merchant password reset'], 'merchant.opened_by_super': ['👀', 'Super Admin opened this account'],
   'merchant.deleted': ['🗑️', 'Merchant deleted'], 'super.login': ['🔑', 'Super Admin signed in'],
   'super.password_changed': ['🔒', 'Super Admin password changed'],
+  'coupon.entered': ['🎟️', 'Customer entered a Lucky Draw'],
+  'campaign.created': ['🎯', 'Created a campaign'], 'campaign.updated': ['🎯', 'Changed a campaign'], 'campaign.deleted': ['🗑️', 'Deleted a campaign'],
+  'campaign.paused': ['⏸️', 'Paused a campaign'], 'campaign.resumed': ['▶️', 'Resumed a campaign'],
+  'report.exported': ['⬇️', 'Downloaded a report'],
+  'complaint.created': ['📣', 'Customer raised a complaint'], 'complaint.replied': ['💬', 'Replied to a complaint'],
+  'complaint.status': ['📋', 'Changed a complaint status'], 'complaint.escalated': ['🚨', 'Complaint sent to Genuine Draw team'],
+  'merchant.registered': ['📝', 'Merchant signed up'], 'merchant.approved': ['✅', 'Merchant approved'], 'merchant.rejected': ['⛔', 'Merchant not approved'],
 };
 window.activityRow = function (e, { showMerchant = false } = {}) {
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -91,4 +98,25 @@ window.activityRow = function (e, { showMerchant = false } = {}) {
     </div>
     <div class="act-id">#${e.id}</div>
   </div>`;
+};
+
+// Complaint ticket header + conversation, shared by the merchant admin and Super Admin.
+window.COMPLAINT_STATUS = { open: ['claimed', 'Open'], in_progress: ['bumper', 'In progress'], resolved: ['redeemed', 'Resolved'], rejected: ['off', 'Closed'] };
+window.COMPLAINT_CAT = { not_received: 'Did not get coupon / reward', prize_not_given: 'Prize not given', result_dispute: 'Problem with the result', invalid_coupon: 'Coupon invalid or used', other: 'Something else' };
+window.complaintThread = k => {
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const fmtCode = c => c ? (c.length === 8 ? c.slice(0, 4) + '-' + c.slice(4) : c) : '';
+  const fmtTime = s => s ? new Date(s.replace(' ', 'T') + 'Z').toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) : '';
+  const fmtPhone = p => p ? p.slice(0, 5) + ' ' + p.slice(5) : '';
+  const C_STATUS = window.COMPLAINT_STATUS, C_CAT = window.COMPLAINT_CAT;
+  return `
+    <div class="ticket-head">
+      <div><span class="pill ${C_STATUS[k.status][0]}">${C_STATUS[k.status][1]}</span> ${k.escalated ? '<span class="pill void">With Genuine Draw team</span>' : ''}</div>
+      <div class="meta"><span>🎫 <b>${esc(k.ticket_no)}</b></span><span>${esc(C_CAT[k.category] || k.category)}</span>${k.shop ? `<span>🏬 ${esc(k.shop)}</span>` : ''}</div>
+      <div class="meta">${k.coupon_code ? `<span>Coupon <b>${esc(fmtCode(k.coupon_code))}</b></span>` : ''}${k.campaign ? `<span>${esc(k.campaign)}</span>` : ''}${k.outlet ? `<span>📍 ${esc(k.outlet)}</span>` : ''}${k.incident_at ? `<span>🕒 ${fmtTime(k.incident_at)}</span>` : ''}</div>
+      <div class="meta"><span>👤 ${esc(k.customer_name || 'Customer')} · ${esc(fmtPhone(k.phone))}</span><span>Raised ${fmtTime(k.created_at)}</span></div>
+      ${k.escalation_reason ? `<p class="hint">Escalated: ${esc(k.escalation_reason)}</p>` : ''}
+    </div>
+    ${k.photo ? `<img class="ticket-photo" src="${esc(k.photo)}" alt="Photo from customer">` : ''}
+    <div class="thread">${k.messages.map(msg => `<div class="msg ${msg.author_type}"><small>${esc(msg.author_name || msg.author_type)} · ${fmtTime(msg.created_at)}</small><div>${esc(msg.body)}</div></div>`).join('')}</div>`;
 };

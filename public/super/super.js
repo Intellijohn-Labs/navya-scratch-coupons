@@ -89,17 +89,132 @@
 
   // ---------------------------------------------------------------- router
   async function route() {
-    const name = ['merchants', 'activity', 'account'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'merchants';
+    const name = ['merchants', 'approvals', 'complaints', 'activity', 'account'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'merchants';
     document.querySelectorAll('#nav a').forEach(a => a.classList.toggle('on', a.dataset.r === name));
     view.innerHTML = '<div class="empty-state">Loading…</div>';
-    try { await ({ merchants: bakeries, activity, account })[name](); }
+    try { await ({ merchants: bakeries, approvals, complaints, activity, account })[name](); }
     catch (e) { if (e.message !== 'Please log in') view.innerHTML = `<div class="empty-state"><span>⚠️</span>${esc(e.message)}</div>`; }
   }
   window.addEventListener('hashchange', route);
 
+  function setBadges(c) {
+    if (!c) return;
+    for (const [r, n] of [['approvals', c.pending], ['complaints', c.escalated]]) {
+      const a = document.querySelector(`#nav a[data-r="${r}"]`);
+      let b = a.querySelector('.nbadge');
+      if (!b) { b = document.createElement('em'); b.className = 'nbadge'; a.appendChild(b); }
+      b.textContent = n; b.hidden = !n;
+    }
+  }
+  const refreshBadges = () => api('/overview').then(r => setBadges(r.counts)).catch(() => {});
+
+  // ---------------------------------------------------------------- approvals
+  async function approvals() {
+    const { pending, decided } = await api('/approvals');
+    refreshBadges();
+    const row = (t, actions) => `<div class="bk">
+      <div class="bk-logo" style="background:#2A3F6E">${esc(initials(t.name))}</div>
+      <div>
+        <h4>${esc(t.name)} ${t.status === 'pending' ? '<span class="pill expired">Waiting</span>' : t.status === 'rejected' ? '<span class="pill suspended">Not approved</span>' : '<span class="pill active">Approved</span>'}</h4>
+        <div class="sub">Username <b>${esc(t.slug)}</b> · ${esc(t.slug)}.genuinedraw.in · signed up ${ago(t.created_at)}</div>
+        <div class="sub">${esc(t.owner_name)} · ${esc(t.contact_phone)}${t.email ? ' · ' + esc(t.email) : ''}</div>
+        <div class="sub">${esc([t.business_type, t.address, t.gst_number ? 'GST ' + t.gst_number : ''].filter(Boolean).join(' · ') || '—')}</div>
+        ${t.reject_reason ? `<div class="sub" style="color:var(--red)">Reason: ${esc(t.reject_reason)}</div>` : ''}
+      </div>
+      <div></div>
+      <div class="bk-actions">${actions}</div>
+    </div>`;
+    view.innerHTML = `
+      <div class="page-head"><div><h1>Approvals</h1><p>Businesses that signed up at <b>genuinedraw.in/register</b>. They can't sign in until you approve them.</p></div>
+        <a class="btn" href="/register" target="_blank" rel="noopener">Open sign-up page ↗</a></div>
+      <h3 class="section-title">Waiting (${pending.length})</h3>
+      <div class="bk-list">${pending.map(t => row(t, `<button class="btn sm primary" data-ok="${t.id}">Approve</button><button class="btn sm danger" data-no="${t.id}">Reject</button>`)).join('')
+        || '<div class="card empty-state"><span>✅</span>No sign-ups waiting</div>'}</div>
+      ${decided.length ? `<h3 class="section-title">Recently decided</h3><div class="bk-list">${decided.map(t => row(t, t.status === 'rejected' ? `<button class="btn sm" data-ok="${t.id}">Approve after all</button>` : '')).join('')}</div>` : ''}`;
+    const all = [...pending, ...decided], find = id => all.find(t => t.id === +id);
+    view.querySelectorAll('[data-ok]').forEach(b => b.onclick = () => {
+      const t = find(b.dataset.ok);
+      const nextYear = new Date(Date.now() + 365 * 86400000).toISOString().slice(0, 10);
+      const m = modal(`<h2>Approve ${esc(t.name)}</h2>
+        <p class="hint">They'll get a WhatsApp message and can sign in at <b>${esc(t.admin_url)}</b> with the password they chose.</p>
+        <div class="grid2">
+          <div><label class="label">Plan valid till <i>(optional)</i></label><input class="input" type="date" id="aPlan" value="${nextYear}"></div>
+          <div><label class="label">Coupon limit <i>(optional)</i></label><input class="input" type="number" min="0" id="aMax" placeholder="No limit"></div>
+        </div>
+        <p class="err" id="aErr" style="color:var(--red);font-weight:600;min-height:18px"></p>
+        <div class="modal-foot"><button class="btn" id="aCancel">Cancel</button><button class="btn primary" id="aGo">Approve</button></div>`);
+      $('#aCancel', m.el).onclick = m.close;
+      $('#aGo', m.el).onclick = async () => {
+        try { await api(`/tenants/${t.id}/approve`, { method: 'POST', body: { plan_expires_on: $('#aPlan', m.el).value, max_coupons: $('#aMax', m.el).value } }); m.close(); toast(`${t.name} approved ✅`); approvals(); }
+        catch (e) { $('#aErr', m.el).textContent = e.message; }
+      };
+    });
+    view.querySelectorAll('[data-no]').forEach(b => b.onclick = () => {
+      const t = find(b.dataset.no);
+      const m = modal(`<h2>Reject ${esc(t.name)}?</h2>
+        <label class="label">Reason <i>(the merchant will see this)</i></label>
+        <textarea class="input" id="rReason" maxlength="500" placeholder="e.g. We couldn't verify the business details. Please call us."></textarea>
+        <p class="err" id="rErr" style="color:var(--red);font-weight:600;min-height:18px"></p>
+        <div class="modal-foot"><button class="btn" id="rCancel">Cancel</button><button class="btn danger" id="rGo">Reject</button></div>`);
+      $('#rCancel', m.el).onclick = m.close;
+      $('#rGo', m.el).onclick = async () => {
+        try { await api(`/tenants/${t.id}/reject`, { method: 'POST', body: { reason: $('#rReason', m.el).value } }); m.close(); toast('Sign-up rejected'); approvals(); }
+        catch (e) { $('#rErr', m.el).textContent = e.message; }
+      };
+    });
+  }
+
+  // ---------------------------------------------------------------- complaints
+  async function complaints() {
+    let filter = 'escalated';
+    view.innerHTML = `
+      <div class="page-head"><div><h1>Complaints</h1><p>Tickets not resolved by the merchant within 24 hours, or that the customer escalated, land here.</p></div></div>
+      <div class="seg" id="kSeg" style="max-width:520px;margin-bottom:16px">
+        <button data-f="escalated" class="on">Escalated</button><button data-f="open">All open</button><button data-f="all">Everything</button>
+      </div>
+      <div id="kList"></div>`;
+    const ST = COMPLAINT_STATUS, CAT = COMPLAINT_CAT;
+    const load = async () => {
+      const list = await api('/complaints?filter=' + filter);
+      refreshBadges();
+      $('#kList').innerHTML = list.length ? `<div class="table-wrap"><table class="rtable">
+        <thead><tr><th>Ticket</th><th>Merchant</th><th>Problem</th><th>Status</th><th>Updated</th><th></th></tr></thead>
+        <tbody>${list.map(k => `<tr>
+          <td data-label="Ticket"><b>${esc(k.ticket_no)}</b><small>${esc(k.customer_name || '')} ${esc(k.phone)}</small></td>
+          <td data-label="Merchant">${esc(k.shop || '—')}<small>${esc(k.outlet || '')}</small></td>
+          <td data-label="Problem">${esc(CAT[k.category])}<small>${esc((k.last_message || '').slice(0, 80))}</small></td>
+          <td data-label="Status"><span class="pill ${ST[k.status][0]}">${ST[k.status][1]}</span>${k.escalated ? ' <span class="pill void">Escalated</span>' : ''}</td>
+          <td data-label="Updated">${ago(k.updated_at)}</td>
+          <td class="td-actions"><button class="btn sm primary" data-open="${k.id}">Open</button></td></tr>`).join('')}</tbody></table></div>`
+        : '<div class="card empty-state"><span>🙌</span>Nothing here</div>';
+      view.querySelectorAll('[data-open]').forEach(b => b.onclick = () => openTicket(b.dataset.open));
+    };
+    const openTicket = async id => {
+      const k = await api('/complaints/' + id);
+      const m = modal(`<h2>Complaint</h2>${complaintThread(k)}
+        <label class="label">Reply as Genuine Draw team <i>(the customer and the merchant get it on WhatsApp)</i></label>
+        <textarea class="input" id="kBody" maxlength="2000"></textarea>
+        <label class="label">Status</label>
+        <select class="input" id="kStatus">${Object.entries(ST).map(([v, [, l]]) => `<option value="${v}" ${v === k.status ? 'selected' : ''}>${l}</option>`).join('')}</select>
+        <p class="err" id="kErr" style="color:var(--red);font-weight:600;min-height:18px"></p>
+        <div class="modal-foot"><button class="btn" id="kClose">Close</button><button class="btn primary" id="kSend">Send</button></div>`, { wide: true });
+      $('#kClose', m.el).onclick = m.close;
+      $('#kSend', m.el).onclick = async () => {
+        const st = $('#kStatus', m.el).value;
+        try { await api(`/complaints/${id}/reply`, { method: 'POST', body: { body: $('#kBody', m.el).value, status: st !== k.status ? st : undefined } }); m.close(); toast('Reply sent'); load(); }
+        catch (e) { $('#kErr', m.el).textContent = e.message; }
+      };
+    };
+    view.querySelectorAll('#kSeg button').forEach(b => b.onclick = () => {
+      filter = b.dataset.f; view.querySelectorAll('#kSeg button').forEach(x => x.classList.toggle('on', x === b)); load();
+    });
+    await load();
+  }
+
   // ---------------------------------------------------------------- bakeries
   async function bakeries() {
-    const { tenants } = await api('/overview');
+    const { tenants, counts } = await api('/overview');
+    setBadges(counts);
     const sum = k => tenants.reduce((n, t) => n + (t[k] || 0), 0);
     const active = tenants.filter(t => statusOf(t) === 'active').length;
     view.innerHTML = `

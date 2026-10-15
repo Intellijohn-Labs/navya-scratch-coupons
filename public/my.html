@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#14213D">
+<title>My coupons · Genuine Draw</title>
+<link rel="icon" href="/img/platform-icon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Albert+Sans:wght@400;500;600;700;800;900&family=Fraunces:opsz,wght@9..144,800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/admin/admin.css">
+<link rel="stylesheet" href="/portal.css">
+</head>
+<body class="portal">
+  <header class="p-top">
+    <a class="p-brand" href="/my"><img src="/img/platform-icon.svg" alt=""><span>Genuine Draw</span></a>
+    <nav class="p-links"><a href="/verify">Verify</a><a href="/my" class="on">My coupons</a><a href="#" id="logout" hidden>Sign out</a></nav>
+  </header>
+  <main class="p-wrap" id="app"><div class="empty-state">Loading…</div></main>
+  <footer class="p-foot"><img src="/img/platform-icon.svg" alt="">Genuine Draw · your coupons and complaints from every shop in one place</footer>
+  <div id="modalRoot"></div>
+<script src="/admin/coupon.js"></script>
+<script>
+(() => {
+  const $ = (s, el = document) => el.querySelector(s);
+  const app = $('#app');
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const toDate = s => s ? new Date(s.length > 10 ? s.replace(' ', 'T') + 'Z' : s + 'T00:00:00') : null;
+  const fmtDate = s => s ? toDate(s).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+  const fmtCode = c => c && c.length === 8 ? c.slice(0, 4) + '-' + c.slice(4) : c;
+  const params = new URLSearchParams(location.search);
+  const presetCoupon = (params.get('coupon') || '').toUpperCase();
+  async function api(path, opts = {}) {
+    const r = await fetch('/api/my' + path, { method: opts.method || 'GET', headers: opts.body ? { 'Content-Type': 'application/json' } : {}, body: opts.body ? JSON.stringify(opts.body) : undefined });
+    const d = await r.json().catch(() => ({}));
+    if (r.status === 401 && path !== '/login') { start(); throw new Error('Please sign in'); }
+    if (!r.ok) throw new Error(d.error || 'Something went wrong');
+    return d;
+  }
+  function modal(html) {
+    const root = $('#modalRoot');
+    root.innerHTML = `<div class="modal-back"><div class="modal wide">${html}</div></div>`;
+    const back = root.firstElementChild;
+    back.addEventListener('mousedown', e => { if (e.target === back) close(); });
+    function close() { root.innerHTML = ''; }
+    return { el: back.firstElementChild, close };
+  }
+  function toast(msg) { const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; document.body.appendChild(t); setTimeout(() => t.remove(), 2600); }
+
+  // ---------- sign in with a WhatsApp code
+  function login(me) {
+    $('#logout').hidden = true;
+    app.innerHTML = `
+      <div class="p-hero"><h1>Your coupons, in one place</h1><p>See every coupon you've played, at any shop, and get help if something went wrong.</p></div>
+      <form class="p-card" id="f1">
+        <h2>Sign in with WhatsApp</h2>
+        <p class="hint">Use the mobile number you gave when you played a coupon.</p>
+        <label class="label">Mobile number</label>
+        <input class="input" name="phone" inputmode="numeric" maxlength="14" placeholder="98470 12345" autocomplete="tel-national" autofocus>
+        <p class="p-err" id="e1"></p>
+        <button class="btn primary block">Send me a code</button>
+        ${me.otp_available ? '' : '<div class="p-note gold">WhatsApp sign-in is being set up and will be available soon.</div>'}
+      </form>
+      <form class="p-card" id="f2" hidden>
+        <h2>Enter the 6-digit code</h2>
+        <p class="hint" id="sentTo"></p>
+        <input class="input otp-input" name="code" inputmode="numeric" maxlength="6" autocomplete="one-time-code">
+        <div class="p-note gold" id="devCode" hidden></div>
+        <p class="p-err" id="e2"></p>
+        <button class="btn primary block">Sign in</button>
+        <p class="hint" style="text-align:center;margin-top:12px"><a href="#" id="again">Use a different number</a></p>
+      </form>`;
+    let phone = '';
+    $('#f1').onsubmit = async e => {
+      e.preventDefault();
+      phone = e.target.phone.value.replace(/\D/g, '').slice(-10);
+      $('#e1').textContent = '';
+      const btn = $('#f1 .btn'); btn.disabled = true;
+      try {
+        const r = await api('/otp', { method: 'POST', body: { phone } });
+        $('#f1').hidden = true; $('#f2').hidden = false;
+        $('#sentTo').textContent = `We sent a code on WhatsApp to +91 ${phone.slice(0, 5)} ${phone.slice(5)}.`;
+        if (r.dev_code) { $('#devCode').hidden = false; $('#devCode').innerHTML = `Test mode (no WhatsApp connected): your code is <b>${esc(r.dev_code)}</b>`; }
+        $('#f2').code.focus();
+      } catch (ex) { $('#e1').textContent = ex.message; }
+      btn.disabled = false;
+    };
+    $('#f2').onsubmit = async e => {
+      e.preventDefault();
+      $('#e2').textContent = '';
+      try { await api('/login', { method: 'POST', body: { phone, code: e.target.code.value } }); start(); }
+      catch (ex) { $('#e2').textContent = ex.message; }
+    };
+    $('#again').onclick = e => { e.preventDefault(); $('#f2').hidden = true; $('#f1').hidden = false; };
+  }
+
+  // ---------- signed in
+  let tab = presetCoupon ? 'help' : 'coupons';
+  async function home(me) {
+    $('#logout').hidden = false;
+    app.innerHTML = `
+      <div class="p-hello"><div><small class="hint">Signed in as</small><br><b>${esc(me.name || 'Customer')}</b> <span class="hint">+91 ${esc(me.phone.slice(0, 5))} ${esc(me.phone.slice(5))}</span></div></div>
+      <div class="p-tabs"><button data-t="coupons">My coupons</button><button data-t="tickets">My complaints</button><button data-t="help">Get help</button></div>
+      <div id="tabBody"></div>`;
+    app.querySelectorAll('.p-tabs button').forEach(b => b.onclick = () => { tab = b.dataset.t; draw(); });
+    const draw = async () => {
+      app.querySelectorAll('.p-tabs button').forEach(b => b.classList.toggle('on', b.dataset.t === tab));
+      $('#tabBody').innerHTML = '<div class="empty-state">Loading…</div>';
+      try { await ({ coupons, tickets, help })[tab](); } catch (e) { $('#tabBody').innerHTML = `<div class="empty-state">${esc(e.message)}</div>`; }
+    };
+    window.gotoTab = t => { tab = t; draw(); };
+    draw();
+  }
+  const resultOf = c => c.gift_kind === 'entry' ? `🎟️ Lucky draw entry · draw ${fmtDate(c.draw_on)}`
+    : c.gift_kind === 'prize' ? `🎁 ${esc(c.gift_name)}${c.status === 'redeemed' ? ' · collected' : c.reward_code ? ` · code <b>${esc(c.reward_code)}</b>` : ''}` : 'No prize this time';
+  async function coupons() {
+    const list = await api('/coupons');
+    $('#tabBody').innerHTML = list.length ? `<div class="cp-list">${list.map(c => `<div class="cp">
+      <div class="v-logo" style="${c.logo ? '' : 'background:' + esc(c.color)}">${c.logo ? `<img src="${esc(c.logo)}" alt="">` : esc(c.shop[0])}</div>
+      <div><h4>${esc(c.shop)}</h4><small>${esc(c.campaign || '')}${c.outlet ? ' · ' + esc(c.outlet) : ''}</small>
+        <small>${resultOf(c)}</small><small>Coupon <span class="code">${esc(fmtCode(c.code))}</span> · played ${fmtDate(c.claimed_at)}${c.gift_kind === 'prize' && c.reward_expires && c.status !== 'redeemed' ? ' · valid till ' + fmtDate(c.reward_expires) : ''}</small></div>
+      <div class="cp-actions"><a class="btn sm" href="/verify/${esc(c.code)}">Verify</a><button class="btn sm" data-help="${esc(c.code)}">Get help</button></div>
+    </div>`).join('')}</div>` : '<div class="p-card empty-state"><span>🎟️</span>No coupons on this number yet. Scan a Genuine Draw coupon at any shop to play.</div>';
+    $('#tabBody').querySelectorAll('[data-help]').forEach(b => b.onclick = () => { helpCoupon = b.dataset.help; gotoTab('help'); });
+  }
+  const ST = COMPLAINT_STATUS, CAT = COMPLAINT_CAT;
+  async function tickets() {
+    const list = await api('/complaints');
+    $('#tabBody').innerHTML = list.length ? `<div class="cp-list">${list.map(k => `<div class="cp" style="grid-template-columns:1fr auto">
+      <div><h4>${esc(k.ticket_no)} · ${esc(k.shop || '')}</h4><small>${esc(CAT[k.category])}</small><small>${esc((k.last_message || '').slice(0, 90))}</small></div>
+      <div class="cp-actions"><span class="pill ${ST[k.status][0]}">${ST[k.status][1]}</span>${k.escalated ? '<span class="pill void">With Genuine Draw</span>' : ''}<button class="btn sm primary" data-open="${esc(k.ticket_no)}">Open</button></div>
+    </div>`).join('')}</div>` : '<div class="p-card empty-state"><span>🙌</span>No complaints. Need help? Use the Get help tab.</div>';
+    $('#tabBody').querySelectorAll('[data-open]').forEach(b => b.onclick = () => openTicket(b.dataset.open));
+  }
+  async function openTicket(no) {
+    const k = await api('/complaints/' + no);
+    const closed = ['resolved', 'rejected'].includes(k.status);
+    const m = modal(`<h2>Complaint ${esc(k.ticket_no)}</h2>${complaintThread(k)}
+      <label class="label">${closed ? 'Not happy? Write back to re-open it' : 'Add a message'}</label>
+      <textarea class="input" id="tBody" maxlength="2000"></textarea>
+      <p class="p-err" id="tErr"></p>
+      <div class="modal-foot" style="flex-wrap:wrap">
+        ${k.escalated ? '' : '<button class="btn" id="tEsc" title="Ask the Genuine Draw team to step in">🚨 Escalate to Genuine Draw</button>'}
+        <button class="btn" id="tClose">Close</button><button class="btn primary" id="tSend">Send</button></div>`);
+    $('#tClose', m.el).onclick = m.close;
+    $('#tSend', m.el).onclick = async () => {
+      try { await api(`/complaints/${no}/messages`, { method: 'POST', body: { body: $('#tBody', m.el).value } }); m.close(); toast('Message sent'); gotoTab('tickets'); }
+      catch (e) { $('#tErr', m.el).textContent = e.message; }
+    };
+    if ($('#tEsc', m.el)) $('#tEsc', m.el).onclick = async () => {
+      const reason = prompt('Why do you want the Genuine Draw team to step in?', '');
+      if (reason === null) return;
+      try { await api(`/complaints/${no}/escalate`, { method: 'POST', body: { reason } }); m.close(); toast('Sent to the Genuine Draw team'); gotoTab('tickets'); }
+      catch (e) { $('#tErr', m.el).textContent = e.message; }
+    };
+  }
+  // Shrinks a photo to at most 1280 px so it uploads quickly on mobile data.
+  const readPhoto = file => new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const k = Math.min(1, 1280 / Math.max(img.width, img.height));
+      const c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(img.src);
+      resolve(c.toDataURL('image/jpeg', 0.8));
+    };
+    img.onerror = () => reject(new Error('That file is not a photo'));
+    img.src = URL.createObjectURL(file);
+  });
+  let helpCoupon = presetCoupon;
+  async function help() {
+    const shops = await fetch('/api/public/shops').then(r => r.json()).catch(() => []);
+    let photo = '';
+    $('#tabBody').innerHTML = `<form class="p-card" id="hf">
+      <h2>Tell us what went wrong</h2>
+      <p class="hint">The shop gets your ticket straight away and has 24 hours to sort it out. If they don't, the Genuine Draw team steps in.</p>
+      <label class="label">What happened?</label>
+      <select class="input" name="category">${Object.entries(CAT).map(([v, l]) => `<option value="${v}">${esc(l)}</option>`).join('')}</select>
+      <label class="label">Coupon code <i>(if you have it)</i></label>
+      <input class="input" name="coupon_code" maxlength="12" value="${esc(fmtCode(helpCoupon))}" placeholder="e.g. 7K2M-QX9P" style="text-transform:uppercase">
+      <div id="shopRow"><label class="label">Shop <i>(if you don't have a coupon code)</i></label>
+        <select class="input" name="shop"><option value="">Choose the shop…</option>${shops.map(s => `<option value="${esc(s.slug)}">${esc(s.name)}</option>`).join('')}</select></div>
+      <label class="label">Describe the problem</label>
+      <textarea class="input" name="description" maxlength="2000" placeholder="What happened, and when?"></textarea>
+      <div class="grid2">
+        <div><label class="label">When did it happen? <i>(optional)</i></label><input class="input" type="datetime-local" name="incident_at"></div>
+        <div><label class="label">Photo <i>(optional)</i></label><div class="photo-pick"><label class="btn sm">📷 Add photo<input type="file" accept="image/*" id="ph" hidden></label><img id="phPrev" hidden alt=""></div></div>
+      </div>
+      <p class="p-err" id="he"></p>
+      <button class="btn primary block">Send to the shop</button>
+    </form>`;
+    const f = $('#hf');
+    const syncShop = () => { $('#shopRow').hidden = !!f.coupon_code.value.trim(); };
+    f.coupon_code.oninput = syncShop; syncShop();
+    $('#ph').onchange = async e => {
+      const file = e.target.files[0]; if (!file) return;
+      try { photo = await readPhoto(file); $('#phPrev').src = photo; $('#phPrev').hidden = false; } catch (ex) { $('#he').textContent = ex.message; }
+    };
+    f.onsubmit = async e => {
+      e.preventDefault();
+      $('#he').textContent = '';
+      const btn = $('.btn.primary', f); btn.disabled = true;
+      try {
+        const r = await api('/complaints', { method: 'POST', body: { category: f.category.value, coupon_code: f.coupon_code.value, shop: f.shop.value,
+          description: f.description.value, incident_at: f.incident_at.value ? new Date(f.incident_at.value).toISOString().slice(0, 16) : '', photo } });
+        helpCoupon = '';
+        $('#tabBody').innerHTML = `<div class="p-card p-ok"><div class="big">📨</div><h2>Ticket ${esc(r.ticket)} raised</h2>
+          <p class="muted">The shop has been told. You'll get updates on WhatsApp, and you can follow it under My complaints.</p>
+          <button class="btn primary" onclick="gotoTab('tickets')">See my complaints</button></div>`;
+      } catch (ex) { $('#he').textContent = ex.message; btn.disabled = false; }
+    };
+  }
+
+  async function start() {
+    const me = await fetch('/api/my/me').then(r => r.json()).catch(() => ({ customer: false, otp_available: false }));
+    if (me.customer) home(me); else login(me);
+  }
+  $('#logout').onclick = async e => { e.preventDefault(); await fetch('/api/my/logout', { method: 'POST' }); start(); };
+  start();
+})();
+</script>
+</body>
+</html>
