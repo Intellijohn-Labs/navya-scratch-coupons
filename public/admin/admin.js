@@ -308,7 +308,7 @@
     });
     view.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => {
       const g = list.find(x => x.id == b.dataset.del);
-      if (!confirm(`Delete "${g.name}"? Customers who already won it keep their reward.`)) return;
+      if (!await askConfirm({ title: `Delete "${g.name}"?`, text: 'Customers who already won it keep their reward.', ok: 'Delete gift' })) return;
       await api('/gifts/' + g.id, { method: 'DELETE' }); toast('Gift deleted'); gifts();
     });
   }
@@ -438,7 +438,7 @@
       </div>`;
     $('#newBatch').onclick = batchForm;
     view.querySelectorAll('[data-void]').forEach(b => b.onclick = async () => {
-      if (!confirm('Void all unused coupons in this batch? Customers scanning them will see "Coupon cancelled".')) return;
+      if (!await askConfirm({ title: 'Void all unused coupons?', text: 'Customers scanning them will see "Coupon cancelled". Coupons already played are not affected.', ok: 'Void unused', icon: '🚫' })) return;
       const r = await api(`/batches/${b.dataset.void}/void-unused`, { method: 'POST' });
       toast(`${r.voided} coupons voided`); coupons();
     });
@@ -728,14 +728,12 @@
     };
     if (o) $('#oDel', el).onclick = async () => {
       const used = (o.issued || 0) + (o.redeemed || 0);
-      const msg = used
-        ? `Delete "${o.name}"?
-
-${o.issued} coupons were handed out and ${o.redeemed} gifts redeemed here. They stay in your records, but will no longer show this outlet in reports.
-
-Tip: if the shop has just closed, untick "Open" instead to keep its history.`
-        : `Delete "${o.name}"? This cannot be undone.`;
-      if (!confirm(msg)) return;
+      const yes = await askConfirm({
+        title: `Delete "${o.name}"?`, ok: 'Delete outlet',
+        text: used ? `${o.issued} coupons were handed out and ${o.redeemed} gifts redeemed here. They stay in your records, but reports will no longer show this outlet for them.` : 'This outlet will be removed. This cannot be undone.',
+        note: used ? 'If the shop has just closed, untick "Open" instead to keep its history.' : '',
+      });
+      if (!yes) return;
       try { await api('/outlets/' + o.id, { method: 'DELETE' }); m.close(); toast('Outlet deleted'); outlets(); }
       catch (e) { $('#oErr', el).textContent = e.message; }
     };
@@ -777,7 +775,7 @@ Tip: if the shop has just closed, untick "Open" instead to keep its history.`
     view.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => staffForm(list.find(s => s.id === +b.dataset.edit), outs));
     view.querySelectorAll('[data-toggle]').forEach(b => b.onclick = async () => {
       const s = list.find(x => x.id === +b.dataset.toggle);
-      if (s.active && !confirm(`Switch off ${s.name}'s login? They will be signed out straight away.`)) return;
+      if (s.active && !await askConfirm({ title: `Switch off ${s.name}'s login?`, text: 'They will be signed out straight away. You can switch it back on any time.', ok: 'Switch off', icon: '⛔' })) return;
       try { await api('/staff/' + s.id, { method: 'PUT', body: { active: !s.active } }); toast(s.active ? 'Login switched off' : 'Login switched on'); team(); } catch (e) { toast(e.message); }
     });
     view.querySelectorAll('[data-pw]').forEach(b => b.onclick = () => {
@@ -829,7 +827,7 @@ Tip: if the shop has just closed, untick "Open" instead to keep its history.`
     $('#sCancel', el).onclick = m.close;
     const del = $('#sDel', el);
     if (del) del.onclick = async () => {
-      if (!confirm(`Delete ${s.name}'s login for good?`)) return;
+      if (!await askConfirm({ title: `Delete ${s.name}'s login?`, text: 'They will no longer be able to sign in. Their past actions stay in the activity log.', ok: 'Delete login' })) return;
       try { await api('/staff/' + s.id, { method: 'DELETE' }); m.close(); toast('Login deleted'); team(); } catch (e) { toast(e.message); }
     };
     $('#sSave', el).onclick = async () => {
@@ -897,7 +895,7 @@ Tip: if the shop has just closed, untick "Open" instead to keep its history.`
       catch (e) { toast(e.message); }
     });
     view.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => {
-      if (!confirm('Delete this campaign and its unused coupons?')) return;
+      if (!await askConfirm({ title: 'Delete this campaign?', text: 'The campaign and its unused coupons will be removed. This cannot be undone.', ok: 'Delete campaign' })) return;
       try { await api('/campaigns/' + b.dataset.del, { method: 'DELETE' }); toast('Campaign deleted'); campaigns(); } catch (e) { toast(e.message); }
     });
   }
@@ -1221,7 +1219,7 @@ Tip: if the shop has just closed, untick "Open" instead to keep its history.`
     };
     const clr = $('#sClear');
     if (clr) clr.onclick = async () => {
-      if (!confirm('Remove the demo batch and all its sample customers?')) return;
+      if (!await askConfirm({ title: 'Remove demo data?', text: 'The demo batch and all its sample customers will be removed.', ok: 'Remove', icon: '🧹' })) return;
       await api('/clear-sample', { method: 'POST' }); toast('Demo data removed'); settings();
     };
   }

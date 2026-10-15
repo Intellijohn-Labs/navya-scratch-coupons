@@ -386,7 +386,7 @@
       catch (e) { $('#fErr', el).textContent = e.message; }
     };
     $('#fDelBtn', el).onclick = async () => {
-      if (!confirm(`Delete ${t.name} and all its data for good?`)) return;
+      if (!await askConfirm({ title: `Delete ${t.name}?`, text: 'All of its outlets, staff, gifts, coupons and customers will be deleted for good.', ok: 'Delete merchant' })) return;
       try { await api('/tenants/' + id, { method: 'DELETE', body: { confirm: $('#fDel', el).value.trim() } }); m.close(); toast('Merchant deleted'); route(); }
       catch (e) { toast(e.message); }
     };

@@ -149,7 +149,7 @@
       catch (e) { $('#tErr', m.el).textContent = e.message; }
     };
     if ($('#tEsc', m.el)) $('#tEsc', m.el).onclick = async () => {
-      const reason = prompt('Why do you want the Genuine Draw team to step in?', '');
+      const reason = await askConfirm({ title: 'Ask Genuine Draw to step in?', text: 'Our team will look at this ticket together with the shop.', ok: 'Escalate', tone: 'primary', icon: '🚨', input: true, placeholder: 'Why? e.g. The shop has not replied' });
       if (reason === null) return;
       try { await api(`/complaints/${no}/escalate`, { method: 'POST', body: { reason } }); m.close(); toast('Sent to the Genuine Draw team'); gotoTab('tickets'); }
       catch (e) { $('#tErr', m.el).textContent = e.message; }

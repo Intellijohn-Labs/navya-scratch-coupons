@@ -120,3 +120,41 @@ window.complaintThread = k => {
     ${k.photo ? `<img class="ticket-photo" src="${esc(k.photo)}" alt="Photo from customer">` : ''}
     <div class="thread">${k.messages.map(msg => `<div class="msg ${msg.author_type}"><small>${esc(msg.author_name || msg.author_type)} · ${fmtTime(msg.created_at)}</small><div>${esc(msg.body)}</div></div>`).join('')}</div>`;
 };
+
+// A styled replacement for the browser's confirm() / prompt(). Resolves true/false, or the typed text (null if cancelled) when `input` is set.
+window.askConfirm = function ({ title, text = '', note = '', ok = 'Delete', cancel = 'Cancel', tone = 'danger', icon, input, placeholder = '' } = {}) {
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const ico = icon || (tone === 'danger' ? '🗑️' : '❓');
+  return new Promise(resolve => {
+    const prev = document.activeElement;
+    const root = document.createElement('div');
+    root.className = 'ask-back';
+    root.innerHTML = `<div class="ask ${tone}" role="alertdialog" aria-modal="true" aria-labelledby="askT">
+      <div class="ask-ico">${ico}</div>
+      <h3 id="askT">${esc(title)}</h3>
+      ${String(text).split('\n\n').filter(Boolean).map(p => `<p>${esc(p)}</p>`).join('')}
+      ${note ? `<div class="ask-note">💡 ${esc(note)}</div>` : ''}
+      ${input ? `<textarea class="input ask-input" rows="3" maxlength="500" placeholder="${esc(placeholder)}"></textarea>` : ''}
+      <div class="ask-btns"><button type="button" class="btn" data-a="no">${esc(cancel)}</button><button type="button" class="btn ${tone === 'danger' ? 'ask-danger' : 'primary'}" data-a="yes">${esc(ok)}</button></div>
+    </div>`;
+    document.body.appendChild(root);
+    requestAnimationFrame(() => root.classList.add('in'));
+    const field = root.querySelector('.ask-input');
+    (field || root.querySelector('[data-a="yes"]')).focus();
+    const done = yes => {
+      document.removeEventListener('keydown', onKey, true);
+      root.classList.remove('in'); root.classList.add('out');
+      setTimeout(() => root.remove(), 180);
+      if (prev && prev.focus) prev.focus();
+      resolve(input ? (yes ? field.value.trim() : null) : yes);
+    };
+    const onKey = e => {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); done(false); }
+      else if (e.key === 'Enter' && !(field && e.shiftKey)) { if (e.target.tagName !== 'BUTTON' || e.target.dataset.a === 'yes') { e.preventDefault(); done(true); } }
+    };
+    document.addEventListener('keydown', onKey, true);
+    root.addEventListener('mousedown', e => { if (e.target === root) done(false); });
+    root.querySelector('[data-a="no"]').onclick = () => done(false);
+    root.querySelector('[data-a="yes"]').onclick = () => done(true);
+  });
+};
