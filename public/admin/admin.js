@@ -213,7 +213,7 @@
               <div class="feed-row">
                 <div class="avatar">${esc(initials(r.customer_name))}</div>
                 <div class="who"><b>${esc(r.customer_name)}</b><small>${esc(r.area || '—')} · ${ago(r.claimed_at)}</small></div>
-                ${r.gift_kind === 'prize' ? `<span class="pill ${r.status}">🎁 ${esc(r.gift_name)}</span>` : '<span class="pill lose">No win</span>'}
+                ${r.gift_kind === 'prize' ? `<span class="pill ${r.status}">🎁 ${esc(r.gift_name)}</span>` : r.gift_kind === 'entry' ? '<span class="pill bumper">🎟️ Draw entry</span>' : '<span class="pill lose">No win</span>'}
               </div>`).join('') : '<div class="empty-state"><span>🎟️</span>No scratches yet — print a batch and hand them out!</div>'}
           </div>
         </div>
@@ -577,15 +577,17 @@
         const expired = r.reward_expires && r.reward_expires < new Date().toISOString().slice(0, 10) && r.status === 'claimed';
         const msg = r.gift_kind === 'prize'
           ? `Hi ${r.customer_name.split(' ')[0]}! 🎉 Thanks for playing ${ME.tenant.name} Scratch & Win. Your reward *${r.gift_name}* (code ${r.reward_code}) is waiting for you — valid till ${fmtDate(r.reward_expires)}. See you at ${ME.tenant.name}!`
-          : `Hi ${r.customer_name.split(' ')[0]}! Thanks for playing ${ME.tenant.name} Scratch & Win 🍰 Here's a little something for your next visit…`;
+          : r.gift_kind === 'entry'
+            ? `Hi ${r.customer_name.split(' ')[0]}! 🎟️ You're in the ${r.campaign} Lucky Draw at ${ME.tenant.name}. Your entry number is ${r.code}. Good luck!`
+            : `Hi ${r.customer_name.split(' ')[0]}! Thanks for playing ${ME.tenant.name} Scratch & Win 🍰 Here's a little something for your next visit…`;
         return `<tr>
           <td data-label="When" style="white-space:nowrap">${fmtTime(r.claimed_at)}</td>
           <td data-label="Customer"><b>${esc(r.customer_name)}</b><small>${fmtPhone(r.phone)} <a class="wa-link" href="https://wa.me/91${r.phone}?text=${encodeURIComponent(msg)}" target="_blank" title="Message on WhatsApp">${WA_ICON}</a>${r.consent ? '' : ' · no offers'}</small></td>
           <td data-label="Area">${esc(r.area || '—')}</td>
           <td data-label="Birthday">${r.dob ? fmtDate(r.dob).replace(/ \d{4}$/, '') : '—'}</td>
-          <td data-label="Gift won">${r.gift_kind === 'prize' ? '🎁 ' + esc(r.gift_name) : '<span style="color:var(--muted)">Better luck next time</span>'}<small>${esc(r.campaign)}${r.outlet ? ' · ' + esc(r.outlet) : ''}</small></td>
-          <td data-label="Reward code" class="mono">${r.reward_code || '—'}${r.reward_expires ? `<small>till ${fmtDate(r.reward_expires)}</small>` : ''}</td>
-          <td data-label="Status">${r.gift_kind === 'prize' ? `<span class="pill ${expired ? 'expired' : r.status}">${expired ? 'expired' : r.status === 'claimed' ? 'to redeem' : r.status}</span>` : '<span class="pill lose">—</span>'}</td>
+          <td data-label="Gift won">${r.gift_kind === 'prize' ? '🎁 ' + esc(r.gift_name) : r.gift_kind === 'entry' ? '🎟️ Lucky draw entry' : '<span style="color:var(--muted)">Better luck next time</span>'}<small>${esc(r.campaign)}${r.outlet ? ' · ' + esc(r.outlet) : ''}</small></td>
+          <td data-label="Reward code" class="mono">${r.reward_code || (r.gift_kind === 'entry' ? `<span title="Entry number">${esc(fmtCode(r.code))}</span>` : '—')}${r.reward_expires ? `<small>till ${fmtDate(r.reward_expires)}</small>` : ''}</td>
+          <td data-label="Status">${r.gift_kind === 'prize' ? `<span class="pill ${expired ? 'expired' : r.status}">${expired ? 'expired' : r.status === 'claimed' ? 'to redeem' : r.status}</span>` : r.gift_kind === 'entry' ? '<span class="pill bumper">In the draw</span>' : '<span class="pill lose">—</span>'}</td>
         </tr>`;
       }).join('') || '<tr><td colspan="7" class="empty-state"><span>🙋</span>No customers yet</td></tr>';
     };
@@ -624,6 +626,7 @@
         let banner;
         if (c.status === 'new') banner = ['stop', '⛔', 'Not scratched yet', 'This coupon has not been played. There is no reward to give.'];
         else if (c.status === 'void') banner = ['stop', '⛔', 'Coupon cancelled', 'This coupon was voided. Do not give any gift.'];
+        else if (c.gift_kind === 'entry') banner = ['stop', '🎟️', 'Lucky draw entry: nothing to hand over yet', 'This coupon is an entry in the draw. Winners are picked on the draw date.'];
         else if (!win) banner = ['stop', '⛔', 'No prize on this coupon', 'The customer got "Better luck next time".'];
         else if (c.status === 'redeemed' && justRedeemed) banner = ['done', '✅', 'Gift handed over', `Marked as redeemed at ${fmtTime(c.redeemed_at)}. You're all set.`];
         else if (c.status === 'redeemed') banner = ['stop', '⚠️', 'Already used — do not give again', `This reward was already redeemed on ${fmtTime(c.redeemed_at)}.`];
