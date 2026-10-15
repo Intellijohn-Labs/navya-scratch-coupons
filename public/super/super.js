@@ -72,8 +72,18 @@
   function showShell() { $('#login').classList.add('hidden'); $('#shell').classList.remove('hidden'); route(); }
   $('#loginForm').addEventListener('submit', async e => {
     e.preventDefault();
-    const r = await fetch('/api/super/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: e.target.password.value }) });
-    if (r.ok) { e.target.reset(); showShell(); } else $('#loginErr').textContent = (await r.json().catch(() => ({}))).error || 'Could not sign in';
+    const card = e.target, btn = card.querySelector('.btn.primary');
+    $('#loginErr').textContent = '';
+    btn.classList.add('loading');
+    const r = await fetch('/api/super/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: card.password.value }) }).catch(() => null);
+    if (r && r.ok) {
+      card.classList.add('leaving');
+      setTimeout(() => { card.reset(); card.classList.remove('leaving'); btn.classList.remove('loading'); showShell(); }, 420);
+      return;
+    }
+    btn.classList.remove('loading');
+    $('#loginErr').textContent = r ? ((await r.json().catch(() => ({}))).error || 'Could not sign in') : 'No connection. Please try again.';
+    card.classList.remove('shake'); void card.offsetWidth; card.classList.add('shake');
   });
   $('#logout').onclick = async () => { await fetch('/api/super/logout', { method: 'POST' }); showLogin(); };
 

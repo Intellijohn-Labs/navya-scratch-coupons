@@ -14,14 +14,16 @@
 </head>
 <body>
   <div id="login" class="login hidden">
+    <div class="login-fx" aria-hidden="true"><b></b><b></b><b></b><i></i><i></i><i></i><i></i><i></i><i></i></div>
     <form class="login-card" id="loginForm">
       <img src="/img/platform-icon.svg" alt="" class="login-icon">
       <h1>Genuine Draw</h1>
       <p>Merchant admin · sign in to continue</p>
-      <input class="input" name="username" placeholder="Username" autocomplete="username" autocapitalize="none" spellcheck="false" autofocus>
-      <input class="input" type="password" name="password" placeholder="Password" autocomplete="current-password" style="margin-top:10px">
+      <label class="lf"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg><input class="input" name="username" placeholder="Username" autocomplete="username" autocapitalize="none" spellcheck="false" autofocus></label>
+      <label class="lf"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><input class="input has-eye" type="password" name="password" placeholder="Password" autocomplete="current-password"><button type="button" class="lf-eye" aria-label="Show password"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></button></label>
       <p class="err" id="loginErr"></p>
       <button class="btn primary block">Sign in</button>
+      <div class="lg-foot"><img src="/img/platform-icon.svg" alt="">Secured by <b>Genuine Draw</b></div>
     </form>
   </div>
 
@@ -53,6 +55,10 @@
 
   <div id="modalRoot"></div>
 
+<script>document.querySelectorAll('.lf-eye').forEach(b => b.addEventListener('click', () => {
+  const i = b.parentElement.querySelector('input'); const show = i.type === 'password';
+  i.type = show ? 'text' : 'password'; b.setAttribute('aria-label', show ? 'Hide password' : 'Show password'); b.style.opacity = show ? '1' : ''; i.focus();
+}));</script>
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <script src="/admin/coupon.js"></script>
 <script src="/admin/admin.js"></script>

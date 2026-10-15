@@ -11,34 +11,37 @@
 <link href="https://fonts.googleapis.com/css2?family=Albert+Sans:wght@400;500;600;700;800;900&family=Fraunces:opsz,wght@9..144,800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/admin/admin.css">
 <style>
-  .login-card .btn.primary { background: linear-gradient(135deg, #2A3F6E, #14213D); box-shadow: 0 8px 18px -10px rgba(20, 33, 61, .8); }
   .alt { margin-top: 18px; font-size: 13px; color: var(--muted); }
   .alt a { color: #14213D; font-weight: 700; }
-  .login { background: radial-gradient(circle at 80% 0%, #C9D6F5, transparent 45%), radial-gradient(circle at 0% 100%, #F6E3B4, transparent 45%), #F3F5FA; }
 </style>
 </head>
 <body>
-  <div class="login">
+  <div class="login platform">
+    <div class="login-fx" aria-hidden="true"><b></b><b></b><b></b><i></i><i></i><i></i><i></i><i></i><i></i></div>
     <form class="login-card" id="f">
       <img src="/img/platform-icon.svg" alt="" class="login-icon">
       <h1>Shop sign-in</h1>
       <p>Enter your username and we'll take you to your shop's own address.</p>
-      <input class="input" name="username" placeholder="Your username" autocomplete="username" autocapitalize="none" spellcheck="false" autofocus required>
+      <label class="lf"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l1.5-5h15L21 9M4 9v11h16V9M3 9h18M9 20v-6h6v6"/></svg><input class="input" name="username" placeholder="Your username" autocomplete="username" autocapitalize="none" spellcheck="false" autofocus required></label>
       <p class="err" id="err"></p>
       <button class="btn primary block">Continue</button>
       <p class="alt">Platform owner? <a href="/super">Super Admin sign-in</a></p>
+      <div class="lg-foot"><img src="/img/platform-icon.svg" alt="">Secured by <b>Genuine Draw</b></div>
     </form>
   </div>
 <script>
   document.getElementById('f').addEventListener('submit', async e => {
     e.preventDefault();
-    const err = document.getElementById('err');
+    const card = e.target, btn = card.querySelector('.btn.primary'), err = document.getElementById('err');
     err.textContent = '';
-    const u = e.target.username.value.trim();
-    const r = await fetch('/api/find-shop?username=' + encodeURIComponent(u));
-    const d = await r.json().catch(() => ({}));
-    if (r.ok) location.href = d.url;
-    else err.textContent = d.error || 'Something went wrong';
+    btn.classList.add('loading');
+    const u = card.username.value.trim();
+    const r = await fetch('/api/find-shop?username=' + encodeURIComponent(u)).catch(() => null);
+    const d = r ? await r.json().catch(() => ({})) : {};
+    if (r && r.ok) { card.classList.add('leaving'); setTimeout(() => { location.href = d.url; }, 380); return; }
+    btn.classList.remove('loading');
+    err.textContent = r ? (d.error || 'Something went wrong') : 'No connection. Please try again.';
+    card.classList.remove('shake'); void card.offsetWidth; card.classList.add('shake');
   });
 </script>
 </body>

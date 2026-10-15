@@ -58,10 +58,15 @@
     if (shop.exists === false) {
       card.querySelector('h1').textContent = 'No shop here';
       card.querySelector('p').innerHTML = 'There is no Genuine Draw shop at this address. Check the link you were given.';
-      card.querySelectorAll('input, button').forEach(el => { el.hidden = true; });
+      card.querySelectorAll('.lf, button, .lg-foot').forEach(el => { el.hidden = true; });
     } else if (shop.name) {
       card.querySelector('h1').textContent = shop.name;
       card.querySelector('p').textContent = 'Shop admin · sign in to continue';
+      if (shop.color) {                                     // the shop's own colours on its login page
+        const st = $('#login').style;
+        st.setProperty('--la1', shade(shop.color, .2)); st.setProperty('--la2', shop.color); st.setProperty('--la3', shade(shop.color, -.35));
+        st.setProperty('--blob1', shade(shop.color, .55)); st.setProperty('--blob3', shade(shop.color, .75));
+      }
       if (shop.logo) { const img = card.querySelector('.login-icon'); img.src = shop.logo; img.classList.add('shop-logo'); }
     }
   }
@@ -98,11 +103,19 @@
   }
   $('#loginForm').addEventListener('submit', async e => {
     e.preventDefault();
+    const card = e.target, btn = card.querySelector('.btn.primary');
     $('#loginErr').textContent = '';
+    btn.classList.add('loading');
     const r = await fetch('/api/admin/login', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: e.target.username.value.trim(), password: e.target.password.value }) });
-    if (r.ok) { e.target.reset(); showShell(); }
-    else $('#loginErr').textContent = (await r.json().catch(() => ({}))).error || 'Could not sign in';
+      body: JSON.stringify({ username: card.username.value.trim(), password: card.password.value }) }).catch(() => null);
+    if (r && r.ok) {
+      card.classList.add('leaving');                         // smooth exit, then open the admin
+      setTimeout(() => { card.reset(); card.classList.remove('leaving'); btn.classList.remove('loading'); showShell(); }, 420);
+      return;
+    }
+    btn.classList.remove('loading');
+    $('#loginErr').textContent = r ? ((await r.json().catch(() => ({}))).error || 'Could not sign in') : 'No connection. Please try again.';
+    card.classList.remove('shake'); void card.offsetWidth; card.classList.add('shake');
   });
   $('#myPw').onclick = () => {
     const m = modal(`<h2>Change my password</h2>

@@ -325,3 +325,108 @@ td small { color: var(--muted); display: block; }
 }
 
 .login-icon.shop-logo { height: 70px; max-width: 220px; object-fit: contain; border-radius: 0; }
+
+/* ================================================================ sign-in pages (shop, Super Admin, find-shop) */
+.login {
+  --la1: #FF9A3C; --la2: #F47216; --la3: #963B1F;
+  --blob1: #FFB781; --blob2: #FFE1B8; --blob3: #FFC7D9;
+  --login-bg: #FBF6F1;
+  position: relative; overflow: hidden; isolation: isolate; background: var(--login-bg) !important;
+}
+body.super .login, .login.platform {
+  --la1: #34508F; --la2: #1B2B55; --la3: #0E1733;
+  --blob1: #A9BEF2; --blob2: #F7DE9C; --blob3: #C9DAFF; --login-bg: #F2F4FA;
+}
+.login-fx { position: absolute; inset: 0; z-index: -1; pointer-events: none; }
+.login-fx b { position: absolute; width: 46vmax; height: 46vmax; border-radius: 50%; filter: blur(60px); opacity: .55; will-change: transform; }
+.login-fx b:nth-child(1) { background: var(--blob1); top: -18vmax; right: -12vmax; animation: lgDrift1 22s ease-in-out infinite alternate; }
+.login-fx b:nth-child(2) { background: var(--blob2); bottom: -20vmax; left: -14vmax; animation: lgDrift2 26s ease-in-out infinite alternate; }
+.login-fx b:nth-child(3) { background: var(--blob3); top: 30%; left: 55%; width: 26vmax; height: 26vmax; opacity: .35; animation: lgDrift3 30s ease-in-out infinite alternate; }
+.login-fx i { position: absolute; width: 10px; height: 10px; background: var(--la1); opacity: 0;
+  clip-path: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%); animation: lgTwinkle 4.5s ease-in-out infinite; }
+.login-fx i:nth-of-type(1) { top: 18%; left: 16%; animation-delay: .2s; }
+.login-fx i:nth-of-type(2) { top: 72%; left: 22%; animation-delay: 1.6s; }
+.login-fx i:nth-of-type(3) { top: 24%; left: 80%; animation-delay: 2.8s; }
+.login-fx i:nth-of-type(4) { top: 80%; left: 76%; animation-delay: 1s; }
+.login-fx i:nth-of-type(5) { top: 50%; left: 8%; animation-delay: 3.4s; }
+.login-fx i:nth-of-type(6) { top: 10%; left: 52%; animation-delay: 2.2s; }
+@keyframes lgDrift1 { to { transform: translate(-8vmax, 10vmax) scale(1.15); } }
+@keyframes lgDrift2 { to { transform: translate(10vmax, -6vmax) scale(1.1); } }
+@keyframes lgDrift3 { to { transform: translate(-14vmax, -8vmax) scale(1.3); } }
+@keyframes lgTwinkle { 0%, 100% { opacity: 0; transform: scale(.4) rotate(0); } 50% { opacity: .75; transform: scale(1) rotate(45deg); } }
+
+/* the card: frosted glass, slowly turning gradient edge, staggered entrance */
+.login-card {
+  position: relative; width: min(400px, 100%); padding: 38px 32px 26px; border-radius: 28px;
+  background: rgba(255, 255, 255, .72); -webkit-backdrop-filter: blur(22px) saturate(150%); backdrop-filter: blur(22px) saturate(150%);
+  border: 1px solid rgba(255, 255, 255, .8);
+  box-shadow: 0 40px 80px -40px rgba(20, 33, 61, .45), 0 2px 0 rgba(255, 255, 255, .9) inset;
+  animation: lgCardIn .9s cubic-bezier(.2, .9, .2, 1) both;
+}
+.login-card::before {
+  content: ""; position: absolute; inset: -1.5px; border-radius: inherit; padding: 1.5px; z-index: -1; pointer-events: none;
+  background: conic-gradient(from var(--lg-angle, 0deg), var(--la1), transparent 25%, var(--la2) 50%, transparent 75%, var(--la1));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude;
+  animation: lgSpin 8s linear infinite; opacity: .7;
+}
+@property --lg-angle { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
+@keyframes lgSpin { to { --lg-angle: 360deg; } }
+@keyframes lgCardIn { from { opacity: 0; transform: translateY(26px) scale(.96); filter: blur(6px); } }
+.login-card > * { animation: lgItemIn .7s cubic-bezier(.2, .9, .2, 1) both; }
+.login-card > :nth-child(1) { animation-delay: .15s; } .login-card > :nth-child(2) { animation-delay: .22s; }
+.login-card > :nth-child(3) { animation-delay: .29s; } .login-card > :nth-child(4) { animation-delay: .36s; }
+.login-card > :nth-child(5) { animation-delay: .43s; } .login-card > :nth-child(6) { animation-delay: .5s; }
+.login-card > :nth-child(7) { animation-delay: .57s; } .login-card > :nth-child(8) { animation-delay: .64s; }
+@keyframes lgItemIn { from { opacity: 0; transform: translateY(12px); } }
+.login-card.leaving { animation: lgCardOut .45s cubic-bezier(.6, 0, .8, .2) forwards; }
+@keyframes lgCardOut { to { opacity: 0; transform: translateY(-14px) scale(.97); filter: blur(4px); } }
+.login-card.shake { animation: lgShake .45s cubic-bezier(.36, .07, .19, .97); }
+@keyframes lgShake { 20%, 60% { transform: translateX(-8px); } 40%, 80% { transform: translateX(8px); } }
+
+/* logo: gentle float with a soft shadow */
+.login-card .login-icon { display: block; margin: 0 auto; height: 72px; border-radius: 20px;
+  animation: lgItemIn .7s .15s both, lgFloat 5s 1s ease-in-out infinite; filter: drop-shadow(0 14px 18px rgba(20, 33, 61, .28)); }
+.login-card .login-icon.shop-logo { height: 76px; max-width: 230px; object-fit: contain; border-radius: 0; filter: drop-shadow(0 10px 14px rgba(0, 0, 0, .18)); }
+@keyframes lgFloat { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-7px); } }
+.login-card h1 { font-size: 27px; margin: 16px 0 4px; letter-spacing: -.3px; }
+.login-card > p { margin: 0 0 24px; line-height: 1.45; }
+
+/* fields with icons */
+.lf { position: relative; display: block; margin-top: 12px; }
+.lf > svg { position: absolute; left: 15px; top: 50%; transform: translateY(-50%); width: 19px; height: 19px; color: #9A8A80; transition: color .25s; pointer-events: none; }
+.lf .input { height: 52px; padding-left: 46px; border-radius: 14px; background: rgba(255, 255, 255, .85); font-size: 15.5px;
+  transition: border-color .25s, box-shadow .25s, background .25s, transform .25s; }
+.lf .input:focus { background: #fff; transform: translateY(-1px); border-color: var(--la2);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--la1) 20%, transparent), 0 10px 20px -14px var(--la2); }
+.lf:focus-within > svg { color: var(--la2); }
+.lf .input.has-eye { padding-right: 48px; }
+.lf-eye { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); width: 38px; height: 38px; border: 0; border-radius: 10px; background: transparent;
+  color: #9A8A80; cursor: pointer; display: grid; place-items: center; transition: background .2s, color .2s; }
+.lf-eye:hover { background: rgba(0, 0, 0, .05); color: var(--la2); }
+.lf-eye svg { width: 19px; height: 19px; }
+
+/* the sign-in button: gradient, light sweep, lift, spinner */
+.login-card .btn.primary.block {
+  position: relative; overflow: hidden; height: 52px; margin-top: 6px; border-radius: 14px; font-size: 15.5px; letter-spacing: .2px;
+  background: linear-gradient(135deg, var(--la1), var(--la2) 60%, var(--la3)); background-size: 160% 100%; background-position: 0 0;
+  box-shadow: 0 14px 26px -14px var(--la2); transition: transform .2s, box-shadow .2s, background-position .5s;
+}
+.login-card .btn.primary.block:hover { transform: translateY(-2px); background-position: 100% 0; box-shadow: 0 20px 30px -16px var(--la2); }
+.login-card .btn.primary.block:active { transform: translateY(0) scale(.99); }
+.login-card .btn.primary.block::after { content: ""; position: absolute; top: 0; left: -60%; width: 40%; height: 100%; transform: skewX(-20deg);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .45), transparent); animation: lgSweep 3.6s 1.2s ease-in-out infinite; }
+@keyframes lgSweep { 0%, 60% { left: -60%; } 100% { left: 130%; } }
+.login-card .btn.loading { color: transparent !important; pointer-events: none; }
+.login-card .btn.loading::before { content: ""; position: absolute; left: 50%; top: 50%; width: 20px; height: 20px; margin: -10px 0 0 -10px; border-radius: 50%;
+  border: 2.5px solid rgba(255, 255, 255, .35); border-top-color: #fff; animation: lgSpinner .7s linear infinite; }
+@keyframes lgSpinner { to { transform: rotate(360deg); } }
+.login-card .err { min-height: 20px; margin: 10px 0 2px; font-size: 13.5px; }
+.lg-foot { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 18px; font-size: 12px; color: #9A8A80; }
+.lg-foot img { width: 16px; height: 16px; border-radius: 4px; }
+.lg-foot b { color: #14213D; font-weight: 700; }
+
+@media (max-width: 480px) { .login-card { padding: 30px 20px 22px; border-radius: 24px; } }
+@media (prefers-reduced-motion: reduce) {
+  .login-fx b, .login-fx i, .login-card, .login-card::before, .login-card > *, .login-card .login-icon,
+  .login-card .btn.primary.block::after { animation: none !important; }
+}
