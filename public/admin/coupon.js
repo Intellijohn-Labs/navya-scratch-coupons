@@ -63,7 +63,7 @@ window.ACTIVITY = {
   'coupon.claimed': ['✨', 'Customer scratched a coupon'], 'coupon.redeemed': ['✅', 'Gift handed over'],
   'settings.updated': ['⚙️', 'Changed settings'], 'password.changed': ['🔒', 'Changed own password'],
   'customers.exported': ['⬇️', 'Downloaded the customer list'], 'demo.cleared': ['🧹', 'Removed demo data'],
-  'outlet.created': ['🏪', 'Added an outlet'], 'outlet.updated': ['🏪', 'Changed an outlet'],
+  'outlet.created': ['🏪', 'Added an outlet'], 'outlet.updated': ['🏪', 'Changed an outlet'], 'outlet.deleted': ['🗑️', 'Deleted an outlet'],
   'staff.created': ['👤', 'Added a staff login'], 'staff.updated': ['👤', 'Changed a staff login'],
   'staff.disabled': ['⛔', 'Switched off a staff login'], 'staff.enabled': ['👤', 'Switched on a staff login'],
   'staff.password_reset': ['🔒', 'Reset a staff password'], 'staff.deleted': ['🗑️', 'Deleted a staff login'],

@@ -1012,6 +1012,22 @@ app.put('/api/admin/outlets/:id', a(async (req, res) => {
   res.json({ ok: true });
 }));
 
+app.delete('/api/admin/outlets/:id', a(async (req, res) => {
+  const id = int(req.params.id);
+  await tx(async t => {
+    const o = await one('SELECT * FROM outlets WHERE id = $1 AND tenant_id = $2 FOR UPDATE', [id, T(req)], t);
+    if (!o) throw fail(404, 'Outlet not found');
+    const { n } = await one('SELECT COUNT(*) AS n FROM outlets WHERE tenant_id = $1', [T(req)], t);
+    if (n <= 1) throw fail(409, 'You need at least one outlet. Edit this one instead.');
+    const staff = await q("SELECT name FROM staff WHERE outlet_id = $1 AND role = 'counter'", [id], t);
+    if (staff.length) throw fail(409, `Move these counter logins to another outlet first (Team page): ${staff.map(x => x.name).join(', ')}`);
+    // Past coupons and redemptions stay; they just no longer point at this outlet.
+    await q('DELETE FROM outlets WHERE id = $1', [id], t);
+    await log(req, 'outlet.deleted', 'outlet', id, { name: o.name, address: o.address }, t);
+  });
+  res.json({ ok: true });
+}));
+
 // Team (staff logins) — owner only
 async function usernameFree(username, exceptStaffId = 0) {
   const t = await one('SELECT 1 FROM tenants WHERE slug = $1', [username]);

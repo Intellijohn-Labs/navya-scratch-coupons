@@ -715,12 +715,25 @@
       </div>
       ${o ? `<label class="switch"><input type="checkbox" id="oActive" ${f.active ? 'checked' : ''}> Open (untick if this outlet has closed)</label>` : ''}
       <p class="err" id="oErr" style="color:var(--red);font-weight:600;min-height:18px;margin:12px 0 0"></p>
-      <div class="modal-foot"><button class="btn" id="oCancel">Cancel</button><button class="btn primary" id="oSave">${o ? 'Save' : 'Add outlet'}</button></div>`);
+      <div class="modal-foot">${o ? '<button class="btn danger" id="oDel" style="margin-right:auto">Delete outlet</button>' : ''}<button class="btn" id="oCancel">Cancel</button><button class="btn primary" id="oSave">${o ? 'Save' : 'Add outlet'}</button></div>`);
     const el = m.el;
     $('#oCancel', el).onclick = m.close;
     $('#oSave', el).onclick = async () => {
       const body = { name: $('#oName', el).value, address: $('#oAddr', el).value, phone: $('#oPhone', el).value, maps_url: $('#oMaps', el).value, active: o ? $('#oActive', el).checked : true };
       try { await api(o ? '/outlets/' + o.id : '/outlets', { method: o ? 'PUT' : 'POST', body }); m.close(); toast(o ? 'Outlet saved' : 'Outlet added'); outlets(); }
+      catch (e) { $('#oErr', el).textContent = e.message; }
+    };
+    if (o) $('#oDel', el).onclick = async () => {
+      const used = (o.issued || 0) + (o.redeemed || 0);
+      const msg = used
+        ? `Delete "${o.name}"?
+
+${o.issued} coupons were handed out and ${o.redeemed} gifts redeemed here. They stay in your records, but will no longer show this outlet in reports.
+
+Tip: if the shop has just closed, untick "Open" instead to keep its history.`
+        : `Delete "${o.name}"? This cannot be undone.`;
+      if (!confirm(msg)) return;
+      try { await api('/outlets/' + o.id, { method: 'DELETE' }); m.close(); toast('Outlet deleted'); outlets(); }
       catch (e) { $('#oErr', el).textContent = e.message; }
     };
     setTimeout(() => $('#oName', el).focus(), 50);
