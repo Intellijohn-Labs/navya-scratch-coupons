@@ -1518,7 +1518,10 @@ app.get('/api/super/activity/verify', a(async (req, res) => res.json(await verif
 // ---------------------------------------------------------------- pages
 // Address-aware pages come first; express.static would otherwise answer /admin and /super on its own.
 const pub = path.join(__dirname, 'public');
-app.get('/', (req, res) => res.redirect(siteOf(req).kind === 'platform' ? '/super' : '/admin'));
+// genuinedraw.in opens the landing page; a merchant's own address opens its admin.
+app.get('/', (req, res) => siteOf(req).kind === 'platform' ? res.sendFile(path.join(pub, 'home.html')) : res.redirect('/admin'));
+app.get('/home', (req, res) => res.sendFile(path.join(pub, 'home.html')));
+app.get(['/terms', '/privacy'], (req, res) => res.sendFile(path.join(pub, req.path.slice(1) + '.html')));
 app.get(['/admin', '/admin/'], (req, res) => res.sendFile(path.join(pub, siteOf(req).kind === 'platform' ? 'find-shop.html' : 'admin/index.html')));
 // Super Admin "Open as merchant" lands here on the merchant's subdomain.
 app.get('/admin/enter', a(async (req, res) => {

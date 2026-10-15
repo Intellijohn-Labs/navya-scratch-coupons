@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /super
+Disallow: /api/
+Disallow: /my
+Sitemap: https://genuinedraw.in/sitemap.xml

@@ -79,3 +79,10 @@ body.portal { min-height: 100vh; background: radial-gradient(circle at 90% -10%,
   .cp-actions { grid-column: 1 / -1; flex-direction: row; justify-content: flex-start; }
   .v-search { flex-direction: column; }
 }
+
+/* legal pages */
+.legal h1 { font-family: 'Fraunces', serif; font-size: clamp(28px, 5vw, 40px); color: var(--navy); margin: 0 0 4px; }
+.legal h2 { font-size: 18px; margin: 26px 0 8px; }
+.legal p, .legal li { color: #3A4A6B; line-height: 1.65; font-size: 15px; }
+.legal ul { padding-left: 20px; margin: 0; display: grid; gap: 6px; }
+.p-foot a { color: inherit; }
