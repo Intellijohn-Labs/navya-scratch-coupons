@@ -653,14 +653,31 @@ async function entryList(campaignId, client) {
   return lines;
 }
 // List chunks go to Vercel Blob when it is set up (BLOB_READ_WRITE_TOKEN), otherwise into the database.
+// Vercel Blob is used when the project has a Blob store (BLOB_STORE_ID, signed in automatically on Vercel)
+// or a BLOB_READ_WRITE_TOKEN. Public stores give a direct link; private stores are read back through us
+// (stored as "private:<path>").
+const BLOB_ON = !!(process.env.BLOB_STORE_ID || process.env.BLOB_READ_WRITE_TOKEN);
+async function blobPut(path, text) {
+  const { put } = require('@vercel/blob');
+  const opts = { contentType: 'text/plain; charset=utf-8', addRandomSuffix: false, allowOverwrite: true };
+  try { return (await put(path, text, { ...opts, access: 'public' })).url; }
+  catch (e) {
+    if (!/private|access/i.test(e.message)) throw e;
+    await put(path, text, { ...opts, access: 'private' });
+    return 'private:' + path;
+  }
+}
+async function blobText(url) {
+  if (!url.startsWith('private:')) return (await fetch(url)).text();
+  const r = await require('@vercel/blob').get(url.slice(8), { access: 'private' });
+  if (!r) throw new Error('Stored list part is missing');
+  return new Response(r.stream).text();
+}
 async function storeChunk(drawId, idx, chunk, client) {
   let url = null;
-  if (process.env.BLOB_READ_WRITE_TOKEN) {
-    try {
-      const { put } = require('@vercel/blob');
-      url = (await put(`draws/${drawId}/entries-${String(idx + 1).padStart(3, '0')}-${chunk.hash.slice(0, 12)}.txt`, chunk.text,
-        { access: 'public', contentType: 'text/plain; charset=utf-8', addRandomSuffix: false, allowOverwrite: true })).url;
-    } catch (e) { console.error('Blob upload failed, keeping the chunk in the database:', e.message); }
+  if (BLOB_ON) {
+    try { url = await blobPut(`draws/${drawId}/entries-${String(idx + 1).padStart(3, '0')}-${chunk.hash.slice(0, 12)}.txt`, chunk.text); }
+    catch (e) { console.error('Blob upload failed, keeping the chunk in the database:', e.message); }
   }
   await q('INSERT INTO draw_chunks(draw_id, idx, hash, lines, body, url) VALUES($1,$2,$3,$4,$5,$6)',
     [drawId, idx, chunk.hash, chunk.lines, url ? null : chunk.text, url], client);
@@ -670,7 +687,7 @@ async function loadLines(d, client) {
   const chunks = await q('SELECT idx, hash, body, url FROM draw_chunks WHERE draw_id = $1 ORDER BY idx', [d.id], client);
   const lines = [];
   for (const c of chunks) {
-    const text = c.body ?? await (await fetch(c.url)).text();
+    const text = c.body ?? await blobText(c.url);
     if (sha256(text) !== c.hash) throw new Error(`Entry list chunk ${c.idx + 1} does not match its fingerprint`);
     for (const l of text.split('\n')) lines.push(l);
   }
@@ -759,7 +776,7 @@ async function drawDetail(d, full = false) {
     shop: tenant, prizes,
     entries_count: d.entries_count, entries_hash: d.entries_hash, sealed_at: d.sealed_at, drawn_at: d.drawn_at,
     chunks: d.algo === 1 ? [{ idx: 0, hash: d.entries_hash, lines: d.entries_count, url: `/api/draws/${d.id}/entries.txt` }]
-      : chunks.map(c => ({ idx: c.idx, hash: c.hash, lines: c.lines, url: c.url || `/api/draws/${d.id}/chunks/${c.idx + 1}.txt` })),
+      : chunks.map(c => ({ idx: c.idx, hash: c.hash, lines: c.lines, url: c.url && !c.url.startsWith('private:') ? c.url : `/api/draws/${d.id}/chunks/${c.idx + 1}.txt` })),
     beacon: { source: 'drand (League of Entropy)', chain: DRAND.chain, round, round_time: new Date(drandRoundTime(round)).toISOString(),
       randomness: d.beacon_randomness, signature: d.beacon_signature, url: d.beacon_url || `${DRAND.mirrors[0]}/public/${round}` },
     seed: d.seed,
@@ -788,7 +805,8 @@ app.get('/api/draws/:id/entries.txt', a(async (req, res) => {
 app.get('/api/draws/:id/chunks/:n.txt', a(async (req, res) => {
   const c = await one('SELECT body, url FROM draw_chunks WHERE draw_id = $1 AND idx = $2', [int(req.params.id), int(req.params.n) - 1]);
   if (!c) throw fail(404, 'Not found');
-  if (c.url) return res.redirect(c.url);
+  if (c.url && !c.url.startsWith('private:')) return res.redirect(c.url);
+  if (c.url) c.body = await blobText(c.url);
   res.set('Content-Type', 'text/plain; charset=utf-8').set('Cache-Control', 'public, max-age=31536000, immutable').send(c.body);
 }));
 // Names for the spinning reel on the live page: a random sample of up to 2,000 entries.
@@ -1810,6 +1828,14 @@ app.get('/api/super/activity', a(async (req, res) => {
       a.details, a.ip, a.created_at, a.hash
     FROM audit_log a LEFT JOIN tenants t ON t.id = a.tenant_id
     WHERE a.id < $1 AND ($2::int IS NULL OR a.tenant_id = $2) ORDER BY a.id DESC LIMIT 80`, [before, tenant]));
+}));
+app.get('/api/super/storage-check', a(async (req, res) => {
+  if (!BLOB_ON) return res.json({ blob: false, note: 'No Blob store connected: lucky draw lists are kept in the database.' });
+  const path = `checks/${Date.now()}.txt`, text = 'genuine draw storage check ' + new Date().toISOString();
+  const url = await blobPut(path, text);
+  const back = await blobText(url);
+  await require('@vercel/blob').del(url.startsWith('private:') ? path : url).catch(() => {});
+  res.json({ blob: true, mode: url.startsWith('private:') ? 'private' : 'public', read_back_ok: back === text });
 }));
 app.get('/api/super/activity/verify', a(async (req, res) => res.json(await verifyAudit())));
 
