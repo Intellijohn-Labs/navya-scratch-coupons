@@ -72,7 +72,7 @@ npm start
 | `DATABASE_URL` | yes | Neon Postgres connection string |
 | `SESSION_SECRET` | recommended | Signs login cookies (otherwise a secret stored in the database is used) |
 | `SUPER_ADMIN_PASSWORD` | first run | Initial Super Admin password. Without it a random one is printed in the server log on first start |
-| `WHATSAPP_WEBHOOK_URL` | for WhatsApp | n8n / WAAU webhook that delivers WhatsApp messages (login codes, complaint updates) |
+| `WAAU_PHONE_NUMBER_ID`, `WAAU_ACCESS_TOKEN` | for WhatsApp | WAAU bot that sends the approved `gd_*` templates (login codes, sign-up, approval, complaints) |
 | `SUPER_WHATSAPP` | optional | Super Admin's WhatsApp number for sign-up and escalation alerts |
 | `OTP_DEV_MODE` | testing only | `1` shows customer login codes on screen when no webhook is set |
 

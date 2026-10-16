@@ -307,22 +307,38 @@ app.post('/api/c/:code/claim', a(async (req, res) => {
 }));
 
 // ---------------------------------------------------------------- WhatsApp notifications
-// Messages go to an n8n / WAAU webhook (WHATSAPP_WEBHOOK_URL) that delivers them on WhatsApp.
-// Without one, nothing is sent; locally the one-time codes are shown on screen instead.
-const WA_HOOK = process.env.WHATSAPP_WEBHOOK_URL || '';
-const OTP_ON_SCREEN = !WA_HOOK && (process.env.OTP_DEV_MODE === '1' || !process.env.VERCEL);
+// Approved WhatsApp templates sent through WAAU (Meta Cloud API format). Needs WAAU_PHONE_NUMBER_ID and
+// WAAU_ACCESS_TOKEN. Without them nothing is sent; locally the customer login code is shown on screen instead.
+const WA = {
+  phoneId: process.env.WAAU_PHONE_NUMBER_ID || '',
+  token: process.env.WAAU_ACCESS_TOKEN || '',
+  api: (process.env.WAAU_API_URL || 'https://crmapi.waau.in/api/meta').replace(/\/$/, ''),
+  version: process.env.WAAU_API_VERSION || 'v19.0',
+  lang: process.env.WAAU_TEMPLATE_LANG || 'en',
+};
+const WA_ON = !!(WA.phoneId && WA.token);
+const OTP_ON_SCREEN = !WA_ON && (process.env.OTP_DEV_MODE === '1' || !process.env.VERCEL);
 const cleanPhone = v => String(v || '').replace(/\D/g, '').slice(-10);
-async function notify(phone, type, message, data = {}) {
+// Meta rejects template values with line breaks, tabs or long runs of spaces.
+const waText = v => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, 300) || '-';
+async function sendTemplate(phone, name, params = [], { code } = {}) {
   const to = cleanPhone(phone);
-  if (!WA_HOOK || !/^[6-9]\d{9}$/.test(to)) return false;
-  try {
-    const r = await fetch(WA_HOOK, {
-      method: 'POST', headers: { 'content-type': 'application/json' }, signal: AbortSignal.timeout(6000),
-      body: JSON.stringify({ to: '91' + to, type, message, data, platform: PLATFORM }),
-    });
-    return r.ok;
-  } catch (e) { console.error('WhatsApp webhook failed:', e.message); return false; }
+  if (!WA_ON || !/^[6-9]\d{9}$/.test(to)) return false;
+  const components = [{ type: 'body', parameters: params.map(p => ({ type: 'text', text: waText(p) })) }];
+  if (code) components.push({ type: 'button', sub_type: 'url', index: '0', parameters: [{ type: 'text', text: code }] });   // "Copy code" button
+  const body = JSON.stringify({ messaging_product: 'whatsapp', recipient_type: 'individual', to: '91' + to, type: 'template',
+    template: { name, language: { policy: 'deterministic', code: WA.lang }, components } });
+  for (const url of [`${WA.api}/${WA.version}/${WA.phoneId}/messages`, `${WA.api}/${WA.phoneId}/messages`]) {
+    try {
+      const r = await fetch(url, { method: 'POST', headers: { Authorization: `Bearer ${WA.token}`, 'content-type': 'application/json' }, body, signal: AbortSignal.timeout(8000) });
+      if (r.ok) return true;
+      console.error(`WhatsApp ${name} to ..${to.slice(-4)} failed: ${r.status} ${(await r.text()).slice(0, 300)}`);
+      if (r.status !== 404) return false;
+    } catch (e) { console.error(`WhatsApp ${name} failed: ${e.message}`); }
+  }
+  return false;
 }
+const host = req => onPlatformDomain(req) ? BASE : String(req.get('host') || BASE);
 const superPhone = () => process.env.SUPER_WHATSAPP || '';
 
 // ---------------------------------------------------------------- Phase 1: merchant self sign-up
@@ -366,7 +382,10 @@ app.post('/api/register', a(async (req, res) => {
       details: { name: fields.name, username: fields.slug, business_type: extra.business_type, phone: maskPhone(phone) }, ip: req.ip }, c);
     return row.id;
   });
-  await notify(superPhone(), 'merchant.registered', `New merchant sign-up waiting for approval: ${fields.name} (${fields.slug}), ${owner}, ${phone}.`, { id });
+  await Promise.all([
+    sendTemplate(phone, 'gd_registration_received', [owner.split(' ')[0], fields.name, `${fields.slug}.${BASE}`]),
+    sendTemplate(superPhone(), 'gd_new_signup_alert', [fields.name, fields.slug, owner, phone]),
+  ]);
   res.json({ ok: true, username: fields.slug, admin_url: adminUrl(req, fields) });
 }));
 app.get('/api/register/check', a(async (req, res) => {
@@ -419,13 +438,13 @@ app.post('/api/my/otp', a(async (req, res) => {
   const phone = cleanPhone(req.body.phone);
   if (!/^[6-9]\d{9}$/.test(phone)) throw fail(400, 'Please enter a valid 10-digit mobile number');
   if (throttle('otp:' + req.ip, 10, 60 * 60000) || throttle('otp-phone:' + phone, 4, 30 * 60000)) throw fail(429, 'Too many codes requested. Please wait a while and try again.');
-  if (!WA_HOOK && !OTP_ON_SCREEN) throw fail(503, 'WhatsApp login is being set up. Please try again soon, or contact the shop directly.');
+  if (!WA_ON && !OTP_ON_SCREEN) throw fail(503, 'WhatsApp login is being set up. Please try again soon, or contact the shop directly.');
   const code = String(crypto.randomInt(100000, 1000000));
   await q('UPDATE otp_codes SET used = 1 WHERE phone = $1 AND used = 0', [phone]);
   await q('INSERT INTO otp_codes(phone, code_hash, expires_at) VALUES($1, $2, $3)',
     [phone, await otpHash(phone, code), new Date(Date.now() + 10 * 60000).toISOString().replace('T', ' ').slice(0, 19)]);
-  if (WA_HOOK) {
-    const sent = await notify(phone, 'otp', `Your ${PLATFORM} login code is ${code}. It is valid for 10 minutes. Do not share it with anyone.`, { code });
+  if (WA_ON) {
+    const sent = await sendTemplate(phone, 'gd_login_code', [code], { code });
     if (!sent) throw fail(502, 'Could not send the WhatsApp message. Please try again.');
     return res.json({ ok: true });
   }
@@ -449,7 +468,7 @@ app.post('/api/my/login', a(async (req, res) => {
 app.post('/api/my/logout', (req, res) => res.set('Set-Cookie', 'nv_cust=; Path=/; Max-Age=0').json({ ok: true }));
 app.get('/api/my/me', a(async (req, res) => {
   const phone = await customerOf(req);
-  if (!phone) return res.json({ customer: false, otp_on_screen: OTP_ON_SCREEN, otp_available: !!WA_HOOK || OTP_ON_SCREEN });
+  if (!phone) return res.json({ customer: false, otp_on_screen: OTP_ON_SCREEN, otp_available: WA_ON || OTP_ON_SCREEN });
   const n = await one('SELECT customer_name FROM coupons WHERE phone = $1 AND customer_name IS NOT NULL ORDER BY claimed_at DESC LIMIT 1', [phone]);
   res.json({ customer: true, phone, name: n ? n.customer_name : '' });
 }));
@@ -484,7 +503,10 @@ async function escalateOverdue() {
       [c.id, PLATFORM, 'Not resolved within 24 hours, so this ticket has been sent to the Genuine Draw team.']);
     await audit({ tenantId: c.tenant_id, actor: { type: 'system', name: PLATFORM }, action: 'complaint.escalated', entity: 'complaint', entityId: c.ticket_no, details: { reason: 'overdue' } });
   }
-  if (due.length) await notify(superPhone(), 'complaint.escalated', `${due.length} complaint${due.length > 1 ? 's were' : ' was'} not resolved within 24 hours: ${due.map(c => c.ticket_no).join(', ')}.`);
+  for (const c of due) {
+    const t = await one('SELECT name FROM tenants WHERE id = $1', [c.tenant_id]);
+    await sendTemplate(superPhone(), 'gd_complaint_escalated', [c.ticket_no, t ? t.name : PLATFORM, 'Not resolved within 24 hours']);
+  }
 }
 async function complaintDetail(where, params) {
   const c = await one(`SELECT k.*, t.name AS shop, t.slug, o.name AS outlet, cp.name AS campaign
@@ -515,7 +537,7 @@ async function replyToComplaint(req, c, who, body, status) {
       details: { from: c.status, to: next, by: who.type }, ip: req.ip }, t);
   });
   const st = status && status !== c.status ? ` Status: ${STATUS_LABEL[status]}.` : '';
-  await notify(c.phone, 'complaint.update', `Update on your complaint ${c.ticket_no} (${c.shop || PLATFORM}):${body ? ' ' + body : ''}${st} See it at ${platformBase(req)}/my`, { ticket: c.ticket_no });
+  await sendTemplate(c.phone, 'gd_complaint_update', [c.ticket_no, c.shop || PLATFORM, body || 'The status of your ticket has changed', STATUS_LABEL[status || (c.status === 'open' ? 'in_progress' : c.status)]]);
 }
 
 app.get('/api/my/complaints', a(async (req, res) => {
@@ -560,8 +582,10 @@ app.post('/api/my/complaints', a(async (req, res) => {
       details: { category, coupon: coupon ? coupon.code : null }, ip: req.ip }, t);
     return { ticket };
   });
-  await notify(req.customer, 'complaint.created', `We have received your complaint ${out.ticket} about ${tenant.name}. The shop has 24 hours to resolve it, after which the ${PLATFORM} team steps in. Track it at ${platformBase(req)}/my`, out);
-  await notify(tenant.whatsapp || tenant.contact_phone, 'complaint.created', `New customer complaint ${out.ticket}: ${CATEGORIES[category]}. Please reply within 24 hours from your Complaints page: ${adminUrl(req, tenant)}`, out);
+  await Promise.all([
+    sendTemplate(req.customer, 'gd_complaint_received', [out.ticket, tenant.name, `${host(req)}/my`]),
+    sendTemplate(tenant.whatsapp || tenant.contact_phone, 'gd_complaint_new', [out.ticket, CATEGORIES[category], adminUrl(req, tenant).replace(/^https?:\/\//, '')]),
+  ]);
   res.json(out);
 }));
 app.post('/api/my/complaints/:ticket/messages', a(async (req, res) => {
@@ -584,7 +608,7 @@ app.post('/api/my/complaints/:ticket/escalate', a(async (req, res) => {
       [c.id, PLATFORM, `The customer asked the ${PLATFORM} team to step in: ${reason}`], t);
     await audit({ tenantId: c.tenant_id, actor: { type: 'customer', name: maskPhone(req.customer) }, action: 'complaint.escalated', entity: 'complaint', entityId: c.ticket_no, details: { reason }, ip: req.ip }, t);
   });
-  await notify(superPhone(), 'complaint.escalated', `Customer escalated complaint ${c.ticket_no} (${c.shop}): ${reason}`);
+  await sendTemplate(superPhone(), 'gd_complaint_escalated', [c.ticket_no, c.shop || PLATFORM, reason]);
   res.json({ ok: true });
 }));
 
@@ -1469,7 +1493,7 @@ app.post('/api/super/tenants/:id/approve', a(async (req, res) => {
       [t.id, utcNow(), plan, max], c);
     await slog(req, t.id, 'merchant.approved', 'merchant', t.id, { name: t.name, username: t.slug, plan_expires_on: plan, max_coupons: max }, c);
   });
-  await notify(t.contact_phone, 'merchant.approved', `Good news! ${t.name} is approved on ${PLATFORM}. Sign in at ${adminUrl(req, t)} with the username "${t.slug}".`);
+  await sendTemplate(t.contact_phone, 'gd_registration_status', [(t.owner_name || t.contact_name || t.name).split(' ')[0], t.name]);
   res.json({ ok: true, admin_url: adminUrl(req, t) });
 }));
 app.post('/api/super/tenants/:id/reject', a(async (req, res) => {
@@ -1482,7 +1506,7 @@ app.post('/api/super/tenants/:id/reject', a(async (req, res) => {
     await q(`UPDATE tenants SET status = 'rejected', decided_at = $2, reject_reason = $3, session_version = session_version + 1 WHERE id = $1`, [t.id, utcNow(), reason], c);
     await slog(req, t.id, 'merchant.rejected', 'merchant', t.id, { name: t.name, username: t.slug, reason }, c);
   });
-  await notify(t.contact_phone, 'merchant.rejected', `Your ${PLATFORM} registration for ${t.name} was not approved: ${reason}`);
+  await sendTemplate(t.contact_phone, 'gd_merchant_rejected', [(t.owner_name || t.contact_name || t.name).split(' ')[0], t.name, reason]);
   res.json({ ok: true });
 }));
 
@@ -1499,7 +1523,7 @@ app.post('/api/super/complaints/:id/reply', a(async (req, res) => {
   await replyToComplaint(req, c, { type: 'super', name: `${PLATFORM} team`, actor: SUPER }, req.body.body, req.body.status);
   if (req.body.body) {
     const t = await one('SELECT * FROM tenants WHERE id = $1', [c.tenant_id]);
-    if (t) await notify(t.whatsapp || t.contact_phone, 'complaint.super_reply', `The ${PLATFORM} team replied on complaint ${c.ticket_no}: ${String(req.body.body).slice(0, 300)}`);
+    if (t) await sendTemplate(t.whatsapp || t.contact_phone, 'gd_complaint_update', [c.ticket_no, `${PLATFORM} team`, req.body.body, STATUS_LABEL[req.body.status || c.status] || 'In progress']);
   }
   res.json({ ok: true });
 }));
