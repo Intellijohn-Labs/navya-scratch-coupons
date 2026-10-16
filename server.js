@@ -200,8 +200,9 @@ app.use('/api', a(async (req, res, next) => { await ready(); next(); }));
 
 // ---------------------------------------------------------------- public (customer) API
 // Campaign facts the customer page needs (prizes only for Lucky Draws).
-async function campaignView(batch, client) {
-  const camp = batch.campaign_id ? await one('SELECT * FROM campaigns WHERE id = $1', [batch.campaign_id], client) : null;
+async function campaignView(batch, client, lock = false) {
+  const camp = batch.campaign_id ? await one(`SELECT * FROM campaigns WHERE id = $1${lock ? ' FOR SHARE' : ''}`, [batch.campaign_id], client) : null;
+  if (camp && camp.type === 'draw') camp._draw = await one('SELECT id, status FROM draws WHERE campaign_id = $1', [camp.id], client) || null;
   const prizes = camp && camp.type === 'draw'
     ? await q('SELECT rank, name, description, image, quantity FROM campaign_prizes WHERE campaign_id = $1 ORDER BY rank, id', [camp.id], client) : [];
   return {
@@ -210,6 +211,7 @@ async function campaignView(batch, client) {
       name: camp ? camp.name : batch.name, type: camp ? camp.type : 'instant', headline: batch.headline, subline: batch.subline,
       theme: batch.theme, expires_on: batch.expires_on, starts_on: camp?.starts_on || null, ends_on: camp?.ends_on || null,
       draw_on: camp?.draw_on || null, description: camp?.description || '', terms: camp?.terms || '', status: camp?.status || 'active', prizes,
+      draw_id: camp?._draw?.id || null, draw_status: camp?._draw?.status || null,
     },
   };
 }
@@ -220,6 +222,7 @@ function campaignBlock(batch, camp) {
   if (!camp) return null;
   if (camp.status === 'paused') return ['campaign_paused', 'This campaign is paused right now. Please try again later.'];
   if (camp.status === 'drawn') return ['campaign_ended', 'The draw for this campaign has already taken place.'];
+  if (camp._draw) return ['campaign_ended', 'Entries for this draw are closed. The draw is being run now.'];
   if (camp.starts_on && camp.starts_on > d) return ['not_started', `This campaign starts on ${camp.starts_on}.`];
   if (camp.ends_on && camp.ends_on < d) return ['campaign_ended', 'This campaign has ended.'];
   return null;
@@ -274,7 +277,7 @@ app.post('/api/c/:code/claim', a(async (req, res) => {
     if (!isActive(tenant)) throw fail(403, 'This offer is paused right now. Please try again later.');
     if (c.status !== 'new') throw fail(409, 'This coupon has already been claimed.');
     const batch = await one('SELECT * FROM batches WHERE id = $1', [c.batch_id], t);
-    const { camp } = await campaignView(batch, t);
+    const { camp } = await campaignView(batch, t, true);
     const block = campaignBlock(batch, camp);
     if (block) throw fail(410, block[1]);
     if (tenant.one_per_phone) {
@@ -294,10 +297,10 @@ app.post('/api/c/:code/claim', a(async (req, res) => {
     const expires = kind === 'prize' ? new Date(Date.now() + gift.valid_days * 86400000).toISOString().slice(0, 10) : null;
     const token = crypto.randomBytes(16).toString('hex');
     const fresh = await one(`UPDATE coupons SET status='claimed', gift_id=$1, gift_name=$2, gift_kind=$3, reward_code=$4, reward_expires=$5,
-      claim_token=$6, customer_name=$7, phone=$8, area=$9, dob=$10, occasion=$11, consent=$12, device=$13, ip=$14, claimed_at=$15
+      claim_token=$6, customer_name=$7, phone=$8, area=$9, dob=$10, occasion=$11, consent=$12, device=$13, ip=$14, claimed_at=$15, draw_entry=$17
       WHERE id=$16 RETURNING *`,
     [gift ? gift.id : null, isDraw ? 'Lucky draw entry' : gift ? gift.name : 'Better luck next time', kind, reward, expires, token,
-      name, phone, area, dob, occasion, req.body.consent ? 1 : 0, String(req.get('user-agent') || '').slice(0, 200), req.ip, utcNow(), c.id], t);
+      name, phone, area, dob, occasion, req.body.consent ? 1 : 0, String(req.get('user-agent') || '').slice(0, 200), req.ip, utcNow(), c.id, isDraw ? 1 : 0], t);
     if (gift) await q('UPDATE gifts SET stock_used = stock_used + 1 WHERE id = $1', [gift.id], t);
     await audit({ tenantId: c.tenant_id, actor: { type: 'customer', name: maskName(name) }, action: isDraw ? 'coupon.entered' : 'coupon.claimed', entity: 'coupon', entityId: c.code,
       details: { gift: fresh.gift_name, kind, reward_code: reward, phone: maskPhone(phone), batch_id: c.batch_id, campaign_id: batch.campaign_id }, ip: req.ip }, t);
@@ -416,9 +419,9 @@ app.get('/api/verify/:code', a(async (req, res) => {
     status: c.status === 'new' ? (block ? block[0] : 'unused') : c.status,
     status_note: block ? block[1] : '',
     shop: { name: tenant.name, logo: tenant.logo, color: tenant.color, verified: isActive(tenant) },
-    campaign: { name: view.name, type: view.type, starts_on: view.starts_on, ends_on: view.ends_on, draw_on: view.draw_on, prizes: view.prizes },
+    campaign: { name: view.name, type: view.type, starts_on: view.starts_on, ends_on: view.ends_on, draw_on: view.draw_on, prizes: view.prizes, draw_id: view.draw_status === 'drawn' ? view.draw_id : null },
     claimed_at: c.claimed_at, claimed_by: maskName(c.customer_name || ''), phone: maskPhone(c.phone || ''),
-    result: c.gift_kind === 'entry' ? 'Lucky draw entry' : c.gift_kind === 'prize' ? c.gift_name : c.gift_kind === 'lose' ? 'No prize this time' : null,
+    result: c.gift_kind === 'entry' ? (camp && camp.status === 'drawn' ? 'Lucky draw entry: not a winner this time' : 'Lucky draw entry') : c.gift_kind === 'prize' ? c.gift_name : c.gift_kind === 'lose' ? 'No prize this time' : null,
     reward_expires: c.gift_kind === 'prize' ? c.reward_expires : null, redeemed_at: redeemedAt,
     record: entry ? { hash: entry.hash, at: entry.created_at } : null,
   });
@@ -610,6 +613,144 @@ app.post('/api/my/complaints/:ticket/escalate', a(async (req, res) => {
   });
   await sendTemplate(superPhone(), 'gd_complaint_escalated', [c.ticket_no, c.shop || PLATFORM, reason]);
   res.json({ ok: true });
+}));
+
+// ---------------------------------------------------------------- Phase 3: provably fair Lucky Draw
+// 1. Seal: the full entry list is frozen, its SHA-256 fingerprint is recorded in the tamper-evident log, and a
+//    drand round about 90 seconds in the future is chosen. Nobody (us included) can know that round's number yet.
+// 2. Draw: once the round is published, seed = sha256(fingerprint + ':' + drand randomness), and winners are
+//    picked from the list by a fixed rule anyone can re-run (see runPicks and /draw/:id).
+const DRAND = { genesis: 1595431050, period: 30, chain: '8990e7a9aaed2ffed73dbd7092123d6f289930540d7651336225dc172e51b2ce',
+  mirrors: ['https://drand.cloudflare.com', 'https://api.drand.sh', 'https://api2.drand.sh', 'https://api3.drand.sh'] };
+const sha256 = s => crypto.createHash('sha256').update(s).digest('hex');
+const drandRoundAt = ms => Math.floor((ms / 1000 - DRAND.genesis) / DRAND.period) + 1;
+const drandRoundTime = r => (DRAND.genesis + (Number(r) - 1) * DRAND.period) * 1000;
+async function drandRound(round) {
+  for (const m of DRAND.mirrors) {
+    try {
+      const r = await fetch(`${m}/public/${round}`, { signal: AbortSignal.timeout(5000) });
+      if (!r.ok) continue;
+      const j = await r.json();
+      if (j.round === round && /^[0-9a-f]{64}$/.test(j.randomness)) return { ...j, url: `${m}/public/${round}` };
+    } catch { /* try the next mirror */ }
+  }
+  return null;
+}
+// The published entry list: one line per entry, "CODE,PERSON", sorted by code. PERSON is a private tag for the
+// mobile number, so anyone can see which entries belong to the same person without learning the number.
+async function entryList(campaignId, client) {
+  const rows = await q(`SELECT c.code, c.phone FROM coupons c JOIN batches b ON b.id = c.batch_id
+    WHERE b.campaign_id = $1 AND c.draw_entry = 1 AND c.status IN ('claimed','redeemed') ORDER BY c.code`, [campaignId], client);
+  const key = await secret();
+  return rows.map(r => `${r.code},${crypto.createHmac('sha256', key).update(`${campaignId}:${r.phone}`).digest('hex').slice(0, 12)}`);
+}
+// Prize slots in drawing order: rank 1 first, each repeated by its quantity.
+const prizeSlots = prizes => prizes.flatMap(p => Array.from({ length: p.quantity }, () => p));
+// Pick k takes sha256(seed + ':' + k) as a number, modulo the entries left in the pool, and removes that entry.
+// One prize per person: an entry whose person was already picked is set aside and the next pick is made.
+function runPicks(lines, seed, need) {
+  const pool = lines.map(l => { const [code, tag] = l.split(','); return { code, tag }; });
+  const seen = new Set(), picks = [];
+  for (let k = 0; picks.filter(p => !p.skipped).length < need && pool.length; k++) {
+    const idx = Number(BigInt('0x' + sha256(`${seed}:${k}`)) % BigInt(pool.length));
+    const [e] = pool.splice(idx, 1);
+    if (seen.has(e.tag)) picks.push({ k, code: e.code, skipped: true });
+    else { seen.add(e.tag); picks.push({ k, code: e.code }); }
+  }
+  return picks;
+}
+async function newRewardCode(t) {
+  let r;
+  do { r = 'GD' + randomCode(6); } while (await one('SELECT 1 FROM coupons WHERE reward_code = $1', [r], t));
+  return r;
+}
+const daysAhead = n => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
+const tellWinner = (c, prize, shop) => sendTemplate(c.phone, 'gd_draw_winner',
+  [String(c.customer_name || '').split(' ')[0] || 'there', c.code.slice(0, 4) + '-' + c.code.slice(4), prize, shop]);
+
+// Finish a sealed draw once its drand round is out. Safe to call from any request: the row lock makes it run once.
+async function finalizeDraw(drawId) {
+  const d0 = await one('SELECT id, status, beacon_round FROM draws WHERE id = $1', [drawId]);
+  if (!d0 || d0.status !== 'sealed' || Date.now() < drandRoundTime(d0.beacon_round) + 1500) return;
+  const beacon = await drandRound(Number(d0.beacon_round));
+  if (!beacon) return;
+  const done = await tx(async t => {
+    const d = await one('SELECT * FROM draws WHERE id = $1 FOR UPDATE', [drawId], t);
+    if (d.status !== 'sealed') return null;
+    const camp = await one('SELECT * FROM campaigns WHERE id = $1', [d.campaign_id], t);
+    const slots = prizeSlots(await q('SELECT * FROM campaign_prizes WHERE campaign_id = $1 ORDER BY rank, id', [d.campaign_id], t));
+    const seed = sha256(`${d.entries_hash}:${beacon.randomness}`);
+    const picks = runPicks(d.entries_list.split('\n'), seed, slots.length + camp.backups);
+    const chosen = picks.filter(p => !p.skipped);
+    const expires = daysAhead(camp.claim_days), winners = [];
+    for (let i = 0; i < chosen.length; i++) {
+      const c = await one('SELECT * FROM coupons WHERE code = $1', [chosen[i].code], t);
+      const prize = slots[i];
+      if (prize) {
+        await q(`UPDATE coupons SET gift_kind = 'prize', gift_name = $2, reward_code = $3, reward_expires = $4 WHERE id = $1`,
+          [c.id, prize.name, await newRewardCode(t), expires], t);
+        winners.push({ c, prize: prize.name });
+      }
+      await q(`INSERT INTO draw_winners(draw_id, campaign_id, tenant_id, pick_no, backup, prize_id, prize_rank, prize_name, coupon_id, coupon_code, status, status_at)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+      [d.id, d.campaign_id, d.tenant_id, i + 1, prize ? 0 : 1, prize ? prize.id : null, prize ? prize.rank : null, prize ? prize.name : null,
+        c.id, c.code, prize ? 'won' : 'standby', utcNow()], t);
+    }
+    await q(`UPDATE draws SET status = 'drawn', beacon_randomness = $2, beacon_signature = $3, beacon_url = $4, seed = $5, picks = $6, drawn_at = $7 WHERE id = $1`,
+      [d.id, beacon.randomness, beacon.signature, beacon.url, seed, JSON.stringify(picks), utcNow()], t);
+    await q("UPDATE campaigns SET status = 'drawn' WHERE id = $1", [d.campaign_id], t);
+    await audit({ tenantId: d.tenant_id, actor: { type: 'system', name: PLATFORM }, action: 'draw.completed', entity: 'campaign', entityId: d.campaign_id,
+      details: { campaign: camp.name, entries: d.entries_count, entries_hash: d.entries_hash, drand_round: Number(d.beacon_round), randomness: beacon.randomness, seed,
+        winners: winners.map(w => `${w.prize}: ${w.c.code}`), backups: chosen.slice(slots.length).map(p => p.code) } }, t);
+    return { winners, shop: (await one('SELECT name FROM tenants WHERE id = $1', [d.tenant_id], t)).name };
+  });
+  if (done) for (const w of done.winners) await tellWinner(w.c, w.prize, done.shop);
+}
+
+// Everything the public page needs. Names and numbers are masked; the merchant's own view gets them in full.
+async function drawDetail(d, full = false) {
+  const [camp, tenant, prizes, rows] = await Promise.all([
+    one('SELECT * FROM campaigns WHERE id = $1', [d.campaign_id]),
+    one('SELECT name, slug, logo, color FROM tenants WHERE id = $1', [d.tenant_id]),
+    q('SELECT rank, name, description, quantity FROM campaign_prizes WHERE campaign_id = $1 ORDER BY rank, id', [d.campaign_id]),
+    q(`SELECT w.*, c.customer_name, c.phone, c.area, c.status AS coupon_status, c.reward_code, c.reward_expires, c.redeemed_at
+       FROM draw_winners w LEFT JOIN coupons c ON c.id = w.coupon_id WHERE w.draw_id = $1 ORDER BY w.pick_no, w.id`, [d.id]),
+  ]);
+  const round = Number(d.beacon_round);
+  return {
+    id: d.id, status: d.status, campaign: { id: camp.id, name: camp.name, description: camp.description, terms: camp.terms, ends_on: camp.ends_on, draw_on: camp.draw_on, claim_days: camp.claim_days, backups: camp.backups },
+    shop: tenant, prizes,
+    entries_count: d.entries_count, entries_hash: d.entries_hash, sealed_at: d.sealed_at, drawn_at: d.drawn_at,
+    beacon: { source: 'drand (League of Entropy)', chain: DRAND.chain, round, round_time: new Date(drandRoundTime(round)).toISOString(),
+      randomness: d.beacon_randomness, signature: d.beacon_signature, url: d.beacon_url || `${DRAND.mirrors[0]}/public/${round}` },
+    seed: d.seed, picks: d.picks || [],
+    winners: rows.map(w => ({
+      id: w.id, pick_no: w.pick_no, backup: !!w.backup, prize_rank: w.prize_rank, prize_name: w.prize_name, code: w.coupon_code, status: w.status, replaces_id: w.replaces_id,
+      name: full ? w.customer_name : maskName(w.customer_name || ''), phone: full ? w.phone : maskPhone(w.phone || ''), area: w.area || '',
+      ...(full ? { reward_code: w.reward_code, reward_expires: w.reward_expires, coupon_status: w.coupon_status, redeemed_at: w.redeemed_at, status_at: w.status_at } : { collected: w.coupon_status === 'redeemed' }),
+    })),
+  };
+}
+
+// Public: the live draw page, its proof, and the frozen entry list.
+app.get('/api/draws/:id', a(async (req, res) => {
+  const id = int(req.params.id);
+  await finalizeDraw(id);
+  const d = await one('SELECT * FROM draws WHERE id = $1', [id]);
+  if (!d) throw fail(404, 'Draw not found');
+  res.json({ ...(await drawDetail(d)), now: new Date().toISOString() });
+}));
+app.get('/api/draws/:id/entries.txt', a(async (req, res) => {
+  const d = await one('SELECT entries_list, campaign_id FROM draws WHERE id = $1', [int(req.params.id)]);
+  if (!d) throw fail(404, 'Draw not found');
+  res.set('Content-Type', 'text/plain; charset=utf-8').set('Content-Disposition', `inline; filename="draw-${req.params.id}-entries.txt"`).send(d.entries_list);
+}));
+app.get('/api/winners', a(async (req, res) => {
+  res.json(await q(`SELECT d.id, d.drawn_at, d.entries_count, cp.name AS campaign, t.name AS shop, t.logo, t.color,
+      (SELECT string_agg(w.prize_name, ', ' ORDER BY w.pick_no) FROM draw_winners w WHERE w.draw_id = d.id AND w.status = 'won') AS prizes,
+      (SELECT COUNT(*) FROM draw_winners w WHERE w.draw_id = d.id AND w.status = 'won') AS winners
+    FROM draws d JOIN campaigns cp ON cp.id = d.campaign_id JOIN tenants t ON t.id = d.tenant_id
+    WHERE d.status = 'drawn' AND t.status = 'active' ORDER BY d.drawn_at DESC LIMIT 60`));
 }));
 
 // ---------------------------------------------------------------- merchant admin API
@@ -1133,6 +1274,8 @@ function campaignFields(b) {
     terms: String(b.terms || '').trim().slice(0, 2000),
     starts_on: dateOr(b.starts_on), ends_on: dateOr(b.ends_on), draw_on: dateOr(b.draw_on),
     status: b.status === 'paused' ? 'paused' : 'active',
+    claim_days: Math.max(1, Math.min(365, int(b.claim_days) || 30)),
+    backups: Math.max(0, Math.min(20, b.backups === '' || b.backups == null ? 3 : int(b.backups))),
   };
   if (!f.name) throw fail(400, 'Campaign name is required');
   if (f.starts_on && f.ends_on && f.ends_on < f.starts_on) throw fail(400, 'The end date must be on or after the start date');
@@ -1159,16 +1302,21 @@ const CAMPAIGN_STATS = `SELECT cp.*,
     COUNT(DISTINCT b.id) AS batches, COUNT(c.id) FILTER (WHERE c.status <> 'void') AS printed,
     COUNT(c.id) FILTER (WHERE c.scans > 0) AS scanned,
     COUNT(c.id) FILTER (WHERE c.status IN ('claimed','redeemed')) AS claimed,
-    COUNT(c.id) FILTER (WHERE c.gift_kind = 'entry') AS entries,
+    COUNT(c.id) FILTER (WHERE c.draw_entry = 1) AS entries,
     COUNT(c.id) FILTER (WHERE c.status IN ('claimed','redeemed') AND c.gift_kind = 'prize') AS winners,
     COUNT(c.id) FILTER (WHERE c.status = 'redeemed') AS redeemed,
     COUNT(DISTINCT c.phone) AS customers
   FROM campaigns cp LEFT JOIN batches b ON b.campaign_id = cp.id LEFT JOIN coupons c ON c.batch_id = b.id`;
+const withDraws = async rows => {
+  const ds = rows.length ? await q('SELECT id, campaign_id, status FROM draws WHERE campaign_id = ANY($1)', [rows.map(r => r.id)]) : [];
+  for (const r of rows) { const d = ds.find(x => x.campaign_id === r.id); r.draw_id = d ? d.id : null; r.draw_status = d ? d.status : null; }
+  return rows;
+};
 app.get('/api/admin/campaigns', a(async (req, res) => {
   const rows = await q(`${CAMPAIGN_STATS} WHERE cp.tenant_id = $1 GROUP BY cp.id ORDER BY cp.status = 'active' DESC, cp.id DESC`, [T(req)]);
   const prizes = await q(`SELECT p.* FROM campaign_prizes p JOIN campaigns cp ON cp.id = p.campaign_id WHERE cp.tenant_id = $1 ORDER BY p.rank, p.id`, [T(req)]);
   for (const r of rows) r.prizes = prizes.filter(p => p.campaign_id === r.id);
-  res.json(rows);
+  res.json(await withDraws(rows));
 }));
 app.get('/api/admin/campaigns/:id', a(async (req, res) => {
   const c = await one(`${CAMPAIGN_STATS} WHERE cp.id = $1 AND cp.tenant_id = $2 GROUP BY cp.id`, [int(req.params.id), T(req)]);
@@ -1190,8 +1338,8 @@ app.post('/api/admin/campaigns', a(async (req, res) => {
   const prizes = prizeFields(req.body.prizes);
   if (f.type === 'draw' && !prizes.length) throw fail(400, 'Add at least one prize for the Lucky Draw');
   const id = await tx(async t => {
-    const { id } = await one(`INSERT INTO campaigns(tenant_id, name, type, description, terms, starts_on, ends_on, draw_on, status)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`, [T(req), f.name, f.type, f.description, f.terms, f.starts_on, f.ends_on, f.draw_on, f.status], t);
+    const { id } = await one(`INSERT INTO campaigns(tenant_id, name, type, description, terms, starts_on, ends_on, draw_on, status, claim_days, backups)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`, [T(req), f.name, f.type, f.description, f.terms, f.starts_on, f.ends_on, f.draw_on, f.status, f.claim_days, f.backups], t);
     await savePrizes(id, prizes, t);
     await log(req, 'campaign.created', 'campaign', id, { ...f, prizes: prizes.map(p => `${p.rank}. ${p.name} ×${p.quantity}`) }, t);
     return id;
@@ -1201,6 +1349,7 @@ app.post('/api/admin/campaigns', a(async (req, res) => {
 app.put('/api/admin/campaigns/:id', a(async (req, res) => {
   const before = await campaignOf(req, req.params.id);
   if (before.status === 'drawn') throw fail(409, 'The draw has taken place, so this campaign can no longer be changed.');
+  if (await one('SELECT 1 FROM draws WHERE campaign_id = $1', [before.id])) throw fail(409, 'The draw has started, so this campaign can no longer be changed.');
   const f = campaignFields({ ...before, ...req.body });
   const { played } = await one(`SELECT COUNT(*) AS played FROM coupons c JOIN batches b ON b.id = c.batch_id
     WHERE b.campaign_id = $1 AND c.status IN ('claimed','redeemed')`, [before.id]);
@@ -1210,8 +1359,8 @@ app.put('/api/admin/campaigns/:id', a(async (req, res) => {
   const prizes = 'prizes' in req.body ? prizeFields(req.body.prizes) : null;
   if (f.type === 'draw' && prizes && !prizes.length) throw fail(400, 'Add at least one prize for the Lucky Draw');
   await tx(async t => {
-    await q(`UPDATE campaigns SET name=$3, type=$4, description=$5, terms=$6, starts_on=$7, ends_on=$8, draw_on=$9, status=$10 WHERE id=$1 AND tenant_id=$2`,
-      [before.id, T(req), f.name, f.type, f.description, f.terms, f.starts_on, f.ends_on, f.draw_on, f.status], t);
+    await q(`UPDATE campaigns SET name=$3, type=$4, description=$5, terms=$6, starts_on=$7, ends_on=$8, draw_on=$9, status=$10, claim_days=$11, backups=$12 WHERE id=$1 AND tenant_id=$2`,
+      [before.id, T(req), f.name, f.type, f.description, f.terms, f.starts_on, f.ends_on, f.draw_on, f.status, f.claim_days, f.backups], t);
     if (prizes) await savePrizes(before.id, prizes, t);
     const changed = Object.fromEntries(Object.keys(f).filter(k => String(f[k] ?? '') !== String(before[k] ?? '')).map(k => [k, f[k]]));
     if (prizes) changed.prizes = prizes.map(p => `${p.rank}. ${p.name} ×${p.quantity}`);
@@ -1231,6 +1380,71 @@ app.delete('/api/admin/campaigns/:id', a(async (req, res) => {
   res.json({ ok: true });
 }));
 
+// Lucky Draw: seal and run (owner, or the Super Admin looking in), see the winners, hand a forfeited prize to a backup.
+const ownerOnly = req => { if (!['owner', 'super'].includes(req.actor.type)) throw fail(403, 'Only the shop owner can run the draw.'); };
+app.post('/api/admin/campaigns/:id/draw', a(async (req, res) => {
+  ownerOnly(req);
+  const camp = await campaignOf(req, req.params.id);
+  if (camp.type !== 'draw') throw fail(400, 'This is not a Lucky Draw campaign.');
+  const existing = await one('SELECT id, status FROM draws WHERE campaign_id = $1', [camp.id]);
+  if (existing) return res.json(existing);
+  const d = today();
+  if (!(d >= camp.draw_on || (camp.ends_on && camp.ends_on < d))) throw fail(409, `Entries are open until ${camp.ends_on}. You can run the draw from ${camp.draw_on}.`);
+  const prizes = await q('SELECT 1 FROM campaign_prizes WHERE campaign_id = $1', [camp.id]);
+  if (!prizes.length) throw fail(400, 'Add at least one prize before running the draw.');
+  let id;
+  try {
+    id = await tx(async t => {
+      await q('SELECT id FROM campaigns WHERE id = $1 FOR UPDATE', [camp.id], t);   // no new entries while the list is frozen
+      const lines = await entryList(camp.id, t);
+      if (!lines.length) throw fail(409, 'There are no entries in this draw yet.');
+      const text = lines.join('\n'), hash = sha256(text), round = drandRoundAt(Date.now()) + 3;
+      const row = await one(`INSERT INTO draws(campaign_id, tenant_id, status, entries_count, entries_hash, entries_list, beacon_round, run_by, sealed_at)
+        VALUES($1,$2,'sealed',$3,$4,$5,$6,$7,$8) RETURNING id`, [camp.id, T(req), lines.length, hash, text, round, `${req.actor.name} (${req.actor.type})`, utcNow()], t);
+      await log(req, 'draw.sealed', 'campaign', camp.id, { campaign: camp.name, entries: lines.length, entries_hash: hash,
+        drand_round: round, drand_time: new Date(drandRoundTime(round)).toISOString() }, t);
+      return row.id;
+    });
+  } catch (e) {
+    if (e.code === '23505') return res.json(await one('SELECT id, status FROM draws WHERE campaign_id = $1', [camp.id]));
+    throw e;
+  }
+  res.json({ id, status: 'sealed' });
+}));
+app.get('/api/admin/campaigns/:id/draw', a(async (req, res) => {
+  const camp = await campaignOf(req, req.params.id);
+  const d0 = await one('SELECT id FROM draws WHERE campaign_id = $1', [camp.id]);
+  if (!d0) return res.json({ status: 'none' });
+  await finalizeDraw(d0.id);
+  res.json({ ...(await drawDetail(await one('SELECT * FROM draws WHERE id = $1', [d0.id]), true)), public_url: `${platformBase(req)}/draw/${d0.id}` });
+}));
+// A winner who doesn't collect in time (or is disqualified) loses the prize; the next backup gets it.
+app.post('/api/admin/draw-winners/:id/forfeit', a(async (req, res) => {
+  ownerOnly(req);
+  const reason = String(req.body.reason || '').trim().slice(0, 200) || 'Not collected in time';
+  const out = await tx(async t => {
+    const w = await one("SELECT * FROM draw_winners WHERE id = $1 AND tenant_id = $2 AND status = 'won' FOR UPDATE", [int(req.params.id), T(req)], t);
+    if (!w) throw fail(404, 'Winner not found');
+    const c = await one('SELECT * FROM coupons WHERE id = $1 FOR UPDATE', [w.coupon_id], t);
+    if (c && c.status === 'redeemed') throw fail(409, 'This prize has already been handed over.');
+    await q("UPDATE draw_winners SET status = 'forfeited', status_at = $2 WHERE id = $1", [w.id, utcNow()], t);
+    if (c) await q("UPDATE coupons SET status = 'void' WHERE id = $1", [c.id], t);
+    await log(req, 'draw.prize_forfeited', 'coupon', w.coupon_code, { prize: w.prize_name, reason }, t);
+    const b = await one("SELECT * FROM draw_winners WHERE draw_id = $1 AND status = 'standby' ORDER BY pick_no LIMIT 1 FOR UPDATE", [w.draw_id], t);
+    if (!b) return { promoted: null };
+    const camp = await one('SELECT claim_days FROM campaigns WHERE id = $1', [w.campaign_id], t);
+    const bc = await one('SELECT * FROM coupons WHERE id = $1 FOR UPDATE', [b.coupon_id], t);
+    await q(`UPDATE coupons SET gift_kind = 'prize', gift_name = $2, reward_code = $3, reward_expires = $4 WHERE id = $1`,
+      [bc.id, w.prize_name, await newRewardCode(t), daysAhead(camp.claim_days)], t);
+    await q(`UPDATE draw_winners SET status = 'won', prize_id = $2, prize_rank = $3, prize_name = $4, replaces_id = $5, status_at = $6 WHERE id = $1`,
+      [b.id, w.prize_id, w.prize_rank, w.prize_name, w.id, utcNow()], t);
+    await log(req, 'draw.backup_promoted', 'coupon', b.coupon_code, { prize: w.prize_name, replaces: w.coupon_code, backup_no: b.pick_no }, t);
+    return { promoted: bc.code, coupon: bc, prize: w.prize_name };
+  });
+  if (out.coupon) await tellWinner(out.coupon, out.prize, req.tenant.name);
+  res.json({ ok: true, promoted: out.promoted });
+}));
+
 // Reports: per campaign and per outlet for a date range, plus a CSV of every play in it.
 function reportRange(query) {
   const from = dateOr(query.from) || '2000-01-01';
@@ -1248,7 +1462,7 @@ app.get('/api/admin/reports', a(async (req, res) => {
         COUNT(*) FILTER (WHERE ${inRange('c.first_scan_at')}) AS scanned,
         COUNT(*) FILTER (WHERE ${inRange('c.claimed_at')}) AS claimed,
         COUNT(*) FILTER (WHERE ${inRange('c.claimed_at')} AND c.gift_kind = 'prize') AS winners,
-        COUNT(*) FILTER (WHERE ${inRange('c.claimed_at')} AND c.gift_kind = 'entry') AS entries,
+        COUNT(*) FILTER (WHERE ${inRange('c.claimed_at')} AND c.draw_entry = 1) AS entries,
         COUNT(*) FILTER (WHERE c.status = 'redeemed' AND ${inRange('c.redeemed_at')}) AS redeemed,
         COUNT(DISTINCT c.phone) FILTER (WHERE ${inRange('c.claimed_at')}) AS customers,
         COUNT(DISTINCT c.phone) FILTER (WHERE ${inRange('c.claimed_at')} AND c.consent = 1) AS optins ${base}`, P),
@@ -1257,7 +1471,7 @@ app.get('/api/admin/reports', a(async (req, res) => {
         COUNT(c.id) FILTER (WHERE ${inRange('c.first_scan_at')}) AS scanned,
         COUNT(c.id) FILTER (WHERE ${inRange('c.claimed_at')}) AS claimed,
         COUNT(c.id) FILTER (WHERE ${inRange('c.claimed_at')} AND c.gift_kind = 'prize') AS winners,
-        COUNT(c.id) FILTER (WHERE ${inRange('c.claimed_at')} AND c.gift_kind = 'entry') AS entries,
+        COUNT(c.id) FILTER (WHERE ${inRange('c.claimed_at')} AND c.draw_entry = 1) AS entries,
         COUNT(c.id) FILTER (WHERE c.status = 'redeemed' AND ${inRange('c.redeemed_at')}) AS redeemed,
         COUNT(DISTINCT c.phone) FILTER (WHERE ${inRange('c.claimed_at')}) AS customers
       FROM campaigns cp LEFT JOIN batches b ON b.campaign_id = cp.id LEFT JOIN coupons c ON c.batch_id = b.id
@@ -1574,6 +1788,8 @@ const platformPage = file => (req, res) => {
 app.get('/register', platformPage('register.html'));
 app.get(['/verify', '/verify/:code'], platformPage('verify.html'));
 app.get('/my', platformPage('my.html'));
+app.get('/draw/:id', platformPage('draw.html'));
+app.get('/winners', platformPage('winners.html'));
 app.use(express.static(pub, { extensions: ['html'], maxAge: 0 }));
 
 // Errors: known ones (fail()) go to the user as-is; anything else is logged and hidden.

@@ -259,3 +259,49 @@ CREATE TABLE IF NOT EXISTS complaint_messages (
   created_at    TIMESTAMP NOT NULL DEFAULT (now() AT TIME ZONE 'utc')
 );
 CREATE INDEX IF NOT EXISTS idx_cmsg_complaint ON complaint_messages(complaint_id, id);
+
+-- ---------------------------------------------------------------- Phase 3: provably fair Lucky Draw
+
+-- Entries are flagged so they still count as entries after a winner's coupon becomes a prize.
+ALTER TABLE coupons ADD COLUMN IF NOT EXISTS draw_entry SMALLINT NOT NULL DEFAULT 0;
+UPDATE coupons SET draw_entry = 1 WHERE gift_kind = 'entry' AND draw_entry = 0;
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS claim_days INTEGER NOT NULL DEFAULT 30;   -- winners collect within this many days
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS backups INTEGER NOT NULL DEFAULT 3;       -- reserve winners drawn after the prizes
+
+-- One draw per Lucky Draw campaign. "sealed" = entry list frozen and fingerprinted, waiting for the public
+-- random number (drand round); "drawn" = winners picked.
+CREATE TABLE IF NOT EXISTS draws (
+  id                 SERIAL PRIMARY KEY,
+  campaign_id        INTEGER  NOT NULL UNIQUE REFERENCES campaigns(id) ON DELETE CASCADE,
+  tenant_id          INTEGER  NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  status             TEXT     NOT NULL CHECK (status IN ('sealed', 'drawn')),
+  entries_count      INTEGER  NOT NULL,
+  entries_hash       TEXT     NOT NULL,
+  entries_list       TEXT     NOT NULL,
+  beacon_round       BIGINT   NOT NULL,
+  beacon_randomness  TEXT,
+  beacon_signature   TEXT,
+  beacon_url         TEXT,
+  seed               TEXT,
+  picks              JSONB,
+  run_by             TEXT     NOT NULL DEFAULT '',
+  sealed_at          TIMESTAMP NOT NULL,
+  drawn_at           TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS draw_winners (
+  id            SERIAL PRIMARY KEY,
+  draw_id       INTEGER  NOT NULL REFERENCES draws(id) ON DELETE CASCADE,
+  campaign_id   INTEGER  NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+  tenant_id     INTEGER  NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  pick_no       INTEGER  NOT NULL,                    -- order drawn (1 = first)
+  backup        SMALLINT NOT NULL DEFAULT 0,          -- drawn as a reserve
+  prize_id      INTEGER,
+  prize_rank    INTEGER,
+  prize_name    TEXT,
+  coupon_id     INTEGER  REFERENCES coupons(id) ON DELETE SET NULL,
+  coupon_code   TEXT     NOT NULL,
+  status        TEXT     NOT NULL CHECK (status IN ('won', 'forfeited', 'standby')),
+  replaces_id   INTEGER,                              -- backup promoted in place of a forfeited winner
+  status_at     TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_draw_winners_draw ON draw_winners(draw_id, pick_no);

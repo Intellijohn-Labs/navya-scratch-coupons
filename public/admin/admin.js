@@ -875,11 +875,12 @@
               ${c.type === 'draw' ? `<div><b>${c.entries}</b>Entries</div>` : `<div><b>${c.claimed}</b>Scratched</div><div><b>${c.redeemed}</b>Redeemed</div>`}
               <div><b>${c.customers}</b>Customers</div>
             </div>
+            ${c.type === 'draw' ? drawStrip(c) : ''}
             <div class="batch-actions">
-              <button class="btn sm primary" data-batch="${c.id}">+ Coupons</button>
-              <button class="btn sm" data-edit="${c.id}">Edit</button>
+              ${c.draw_id ? '' : `<button class="btn sm primary" data-batch="${c.id}">+ Coupons</button>`}
+              ${c.draw_id ? '' : `<button class="btn sm" data-edit="${c.id}">Edit</button>`}
               <a class="btn sm" href="#reports/${c.id}">Report</a>
-              ${c.status !== 'drawn' ? `<button class="btn sm" data-pause="${c.id}">${c.status === 'paused' ? 'Resume' : 'Pause'}</button>` : ''}
+              ${c.status !== 'drawn' && !c.draw_id ? `<button class="btn sm" data-pause="${c.id}">${c.status === 'paused' ? 'Resume' : 'Pause'}</button>` : ''}
               ${!c.claimed ? `<button class="btn sm danger" data-del="${c.id}">Delete</button>` : ''}
             </div>
           </div>`;
@@ -898,6 +899,71 @@
       if (!await askConfirm({ title: 'Delete this campaign?', text: 'The campaign and its unused coupons will be removed. This cannot be undone.', ok: 'Delete campaign' })) return;
       try { await api('/campaigns/' + b.dataset.del, { method: 'DELETE' }); toast('Campaign deleted'); campaigns(); } catch (e) { toast(e.message); }
     });
+    view.querySelectorAll('[data-rundraw]').forEach(b => b.onclick = () => runDraw(find(b.dataset.rundraw)));
+    view.querySelectorAll('[data-viewdraw]').forEach(b => b.onclick = () => drawPanel(find(b.dataset.viewdraw)));
+  }
+
+  // ---------------------------------------------------------------- lucky draw
+  const drawReady = c => { const t = new Date().toISOString().slice(0, 10); return t >= c.draw_on || (c.ends_on && c.ends_on < t); };
+  function drawStrip(c) {
+    if (c.draw_status === 'drawn') return `<div class="draw-strip done"><span>🏆 Draw complete</span><button class="btn sm primary" data-viewdraw="${c.id}">Winners &amp; proof</button></div>`;
+    if (c.draw_status === 'sealed') return `<div class="draw-strip live"><span><i></i>Drawing now…</span><button class="btn sm primary" data-viewdraw="${c.id}">Watch</button></div>`;
+    if (!drawReady(c)) return `<div class="draw-strip"><span>🎲 You can run the draw from ${fmtDate(c.draw_on)}</span></div>`;
+    return `<div class="draw-strip ready"><span>🎲 ${c.entries} entr${c.entries === 1 ? 'y' : 'ies'} ready</span>${ME.role === 'owner' ? `<button class="btn sm primary" data-rundraw="${c.id}">Run the draw</button>` : '<small>Ask the owner to run it</small>'}</div>`;
+  }
+  async function runDraw(c) {
+    const yes = await askConfirm({ title: `Run the draw for "${c.name}"?`, icon: '🎲', tone: 'primary', ok: 'Seal entries & draw',
+      text: `The ${c.entries} entries will be sealed now. No new entries can join after this.\n\nWinners are then picked using a public random number that appears about 90 seconds later, so nobody (not even us) can influence the result.`,
+      note: 'Tip: open the live draw page on a big screen in your shop so customers can watch.' });
+    if (!yes) return;
+    try { await api(`/campaigns/${c.id}/draw`, { method: 'POST' }); toast('Entries sealed. Drawing…'); await campaigns(); drawPanel({ ...c, draw_status: 'sealed' }); }
+    catch (e) { toast(e.message); }
+  }
+  async function drawPanel(c) {
+    let d = await api(`/campaigns/${c.id}/draw`), poll = null;
+    const m = modal('<div id="drawBody"></div>', { wide: true });
+    const close = m.close; m.close = () => { clearTimeout(poll); close(); };
+    m.el.parentElement.addEventListener('mousedown', e => { if (e.target === m.el.parentElement) clearTimeout(poll); });
+    const statusOf = w => w.status === 'forfeited' ? '<span class="pill void">Forfeited</span>'
+      : w.status === 'standby' ? '<span class="pill new">Backup</span>'
+      : w.coupon_status === 'redeemed' ? `<span class="pill redeemed">Collected</span><small>${fmtTime(w.redeemed_at)}</small>`
+      : `<span class="pill claimed">To collect</span><small>till ${fmtDate(w.reward_expires)}</small>`;
+    const draw = () => {
+      const body = $('#drawBody', m.el);
+      if (d.status === 'sealed') {
+        const left = Math.max(0, Math.round((new Date(d.beacon.round_time) - Date.now()) / 1000));
+        body.innerHTML = `<h2>Drawing "${esc(d.campaign.name)}"</h2>
+          <div class="draw-wait"><div class="dw-drum"></div><div><b>${d.entries_count} entries sealed</b>
+          <p class="hint" style="margin:4px 0">Waiting for public random number #${d.beacon.round}${left ? ` · about ${left} s` : ' · any moment now'}</p>
+          <code class="hash">${esc(d.entries_hash)}</code></div></div>
+          <div class="modal-foot"><a class="btn" href="${esc(d.public_url)}" target="_blank" rel="noopener">Open live draw page ↗</a><button class="btn primary" id="dClose">Close</button></div>`;
+        $('#dClose', m.el).onclick = m.close;
+        poll = setTimeout(async () => { try { d = await api(`/campaigns/${c.id}/draw`); if (d.status === 'drawn') { toast('🏆 Winners picked!'); campaigns(); } draw(); } catch {} }, 4000);
+        return;
+      }
+      body.innerHTML = `<h2>🏆 Winners · ${esc(d.campaign.name)}</h2>
+        <p class="hint" style="margin:0 0 12px">Drawn ${fmtTime(d.drawn_at)} from ${d.entries_count} entries. Winners collect at the counter with their reward code within ${d.campaign.claim_days} days. If someone doesn't, forfeit the prize and it moves to the next backup.</p>
+        <div class="table-wrap"><table class="rtable"><thead><tr><th>Prize</th><th>Entry</th><th>Winner</th><th>Reward code</th><th>Status</th><th></th></tr></thead><tbody>
+        ${d.winners.map(w => `<tr>
+          <td data-label="Prize"><b>${w.prize_name ? esc(w.prize_name) : 'Backup ' + (w.pick_no - d.winners.filter(x => !x.backup).length)}</b>${w.replaces_id ? '<small>Backup winner</small>' : ''}</td>
+          <td data-label="Entry" class="mono">${esc(fmtCode(w.code))}</td>
+          <td data-label="Winner">${esc(w.name || '—')}<small>${w.phone ? `${esc(fmtPhone(w.phone))} <a class="wa-link" href="https://wa.me/91${esc(w.phone)}" target="_blank" title="WhatsApp">${WA_ICON}</a>` : ''}</small></td>
+          <td data-label="Reward code" class="mono">${w.status === 'won' ? esc(w.reward_code || '') : '—'}</td>
+          <td data-label="Status">${statusOf(w)}</td>
+          <td class="td-actions">${w.status === 'won' && w.coupon_status !== 'redeemed' && ME.role === 'owner' ? `<button class="btn sm danger" data-forfeit="${w.id}">Forfeit</button>` : ''}</td></tr>`).join('')}
+        </tbody></table></div>
+        <div class="modal-foot"><a class="btn" href="${esc(d.public_url)}" target="_blank" rel="noopener">Public draw page &amp; proof ↗</a><button class="btn primary" id="dClose">Close</button></div>`;
+      $('#dClose', m.el).onclick = m.close;
+      m.el.querySelectorAll('[data-forfeit]').forEach(b => b.onclick = async () => {
+        const w = d.winners.find(x => x.id === +b.dataset.forfeit);
+        const reason = await askConfirm({ title: `Forfeit ${w.prize_name} for ${w.name}?`, icon: '⏭️', ok: 'Forfeit & pass on', input: true, placeholder: 'Reason, e.g. Not collected in time',
+          text: 'Their reward code stops working, and the prize goes to the next backup winner, who is told on WhatsApp.' });
+        if (reason === null) return;
+        try { const r = await api(`/draw-winners/${w.id}/forfeit`, { method: 'POST', body: { reason } }); toast(r.promoted ? `Prize passed to ${fmtCode(r.promoted)}` : 'Forfeited. No backups left.'); d = await api(`/campaigns/${c.id}/draw`); draw(); }
+        catch (e) { toast(e.message); }
+      });
+    };
+    draw();
   }
 
   function campaignForm(c) {
@@ -925,6 +991,11 @@
         <label class="label">Prizes <i>(rank 1 = first prize)</i></label>
         <div id="cPrizes"></div>
         <button type="button" class="btn sm" id="cAddPrize">+ Add prize</button>
+        <div class="grid2">
+          <div><label class="label">Winners collect within <i>(days)</i></label><input class="input" type="number" id="cClaim" min="1" max="365" value="${esc(f.claim_days || 30)}"></div>
+          <div><label class="label">Backup winners</label><input class="input" type="number" id="cBackups" min="0" max="20" value="${esc(f.backups ?? 3)}"></div>
+        </div>
+        <p class="hint">If a winner doesn't collect in time, the prize goes to the next backup.</p>
       </div>
       <p class="hint instant-only">Instant Win uses the gifts on your <a href="#gifts">Gifts</a> page.</p>
       <label class="label">Terms &amp; conditions <i>(optional, shown to customers)</i></label>
@@ -957,7 +1028,7 @@
     $('#cCancel', el).onclick = m.close;
     $('#cSave', el).onclick = async () => {
       const body = { name: $('#cName', el).value, type: f.type, starts_on: $('#cStart', el).value, ends_on: $('#cEnd', el).value, draw_on: $('#cDraw', el).value,
-        description: $('#cDesc', el).value, terms: $('#cTerms', el).value, prizes: f.type === 'draw' ? f.prizes.filter(p => String(p.name).trim()) : [] };
+        description: $('#cDesc', el).value, terms: $('#cTerms', el).value, claim_days: $('#cClaim', el).value, backups: $('#cBackups', el).value, prizes: f.type === 'draw' ? f.prizes.filter(p => String(p.name).trim()) : [] };
       try {
         if (c) await api('/campaigns/' + c.id, { method: 'PUT', body });
         else await api('/campaigns', { method: 'POST', body });

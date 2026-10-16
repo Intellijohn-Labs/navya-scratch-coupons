@@ -504,3 +504,19 @@ body.super .login, .login.platform {
 .ask-btns .btn { height: 44px; }
 .btn.ask-danger { background: var(--red); color: #fff; border: 0; box-shadow: 0 8px 18px -10px rgba(210, 59, 59, .9); }
 .btn.ask-danger:hover { background: #B92F2F; }
+
+/* ---------- lucky draw ---------- */
+.draw-strip { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 10px 12px; border-radius: 14px; background: var(--grey-soft); font-weight: 700; font-size: 13.5px; }
+.draw-strip small { color: var(--muted); font-weight: 600; }
+.draw-strip.ready { background: linear-gradient(135deg, #FFF6DD, #FFEBC2); color: #7A5600; }
+.draw-strip.live { background: #E8ECF6; color: #22355F; }
+.draw-strip.live i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: currentColor; margin-right: 8px; animation: blinkDot 1.2s infinite; }
+.draw-strip.done { background: var(--green-soft); color: #136B3D; }
+@keyframes blinkDot { 50% { opacity: .2; } }
+.draw-wait { display: flex; gap: 18px; align-items: center; padding: 18px; border-radius: 16px; background: #0F1A3A; color: #fff; margin: 12px 0 4px; }
+.draw-wait .hint { color: rgba(255, 255, 255, .7); }
+.draw-wait code.hash { display: block; font-size: 11.5px; color: #F7CF6B; word-break: break-all; }
+.dw-drum { flex: none; width: 70px; height: 70px; border-radius: 50%; border: 5px solid #F7CF6B; animation: spinDrum 1.4s linear infinite;
+  background: radial-gradient(circle at 30% 30%, #F7CF6B 0 6px, transparent 7px), radial-gradient(circle at 65% 40%, #F7CF6B 0 6px, transparent 7px), radial-gradient(circle at 45% 70%, #F7CF6B 0 6px, transparent 7px), #14213D; }
+@keyframes spinDrum { to { transform: rotate(360deg); } }
+td.mono, .mono { font-family: ui-monospace, Consolas, monospace; letter-spacing: .04em; }

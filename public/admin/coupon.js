@@ -73,6 +73,8 @@ window.ACTIVITY = {
   'merchant.deleted': ['🗑️', 'Merchant deleted'], 'super.login': ['🔑', 'Super Admin signed in'],
   'super.password_changed': ['🔒', 'Super Admin password changed'],
   'coupon.entered': ['🎟️', 'Customer entered a Lucky Draw'],
+  'draw.sealed': ['🔒', 'Sealed the draw entries'], 'draw.completed': ['🏆', 'Lucky draw winners picked'],
+  'draw.prize_forfeited': ['⏭️', 'Forfeited a draw prize'], 'draw.backup_promoted': ['🎁', 'Backup winner got the prize'],
   'campaign.created': ['🎯', 'Created a campaign'], 'campaign.updated': ['🎯', 'Changed a campaign'], 'campaign.deleted': ['🗑️', 'Deleted a campaign'],
   'campaign.paused': ['⏸️', 'Paused a campaign'], 'campaign.resumed': ['▶️', 'Resumed a campaign'],
   'report.exported': ['⬇️', 'Downloaded a report'],

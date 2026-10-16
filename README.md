@@ -27,6 +27,13 @@ Coupons only work between the campaign's start and end dates, and not while it i
 ### Sign-up and approval (Phase 1)
 Businesses register at `/register` and start as **pending**. Super Admin → **Approvals** approves them (optionally setting a plan end date and coupon limit) or rejects them with a reason, which the merchant sees when they try to sign in.
 
+### Lucky Draw (Phase 3)
+On or after the draw date the owner presses **Run the draw** on the campaign:
+1. **Seal:** the entry list is frozen (no new entries), its SHA-256 fingerprint is written to the activity log, and a drand round about 90 s in the future is chosen.
+2. **Draw:** when that round is published, `seed = sha256(fingerprint + ":" + drand randomness)`. Pick k takes `sha256(seed + ":" + k)` modulo the entries left; one prize per person; prizes from rank 1 down, then backups.
+
+Winners' coupons become prizes with a reward code (valid for the campaign's "collect within" days) and are redeemed at the counter like any prize. **Forfeit** passes a prize to the next backup. `/draw/:id` is the public live page with a "Verify in my browser" button that re-runs every step; `/winners` lists all draws. Winners get the `gd_draw_winner` WhatsApp template.
+
 ### Complaints (Phase 2)
 Customers raise tickets (`GD-XXXXXX`) from `/my`. The coupon, outlet, campaign and time are attached automatically; a photo is optional. The merchant answers from **Complaints**. A ticket not resolved within **24 hours** escalates to Super Admin → **Complaints** automatically, and the customer can escalate it at any time.
 

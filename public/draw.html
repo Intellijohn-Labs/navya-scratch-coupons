@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0B1430">
+<title>Live draw · Genuine Draw</title>
+<meta name="description" content="A provably fair lucky draw. Watch the winners being picked and check the result yourself.">
+<link rel="icon" href="/img/platform-icon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Albert+Sans:wght@400;500;600;700;800;900&family=Fraunces:ital,opsz,wght@0,9..144,800;1,9..144,600&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+:root { --navy: #0B1430; --navy-2: #14213D; --gold: #E0A33A; --gold-2: #F7CF6B; --gold-3: #FFE9A8; --ink: #17203A; --muted: #8A96B4; --green: #34D399; --red: #F87171; }
+* { box-sizing: border-box; }
+html, body { margin: 0; overflow-x: clip; }
+body { font-family: 'Albert Sans', system-ui, sans-serif; color: #fff; background: radial-gradient(90% 70% at 50% 0%, #1E3166, var(--navy) 70%) fixed, var(--navy); min-height: 100vh; }
+a { color: var(--gold-2); }
+.top { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px max(16px, calc((100% - 1040px) / 2)); }
+.brand { display: flex; align-items: center; gap: 10px; color: #fff; text-decoration: none; font-weight: 900; font-size: 18px; }
+.brand img { width: 34px; height: 34px; }
+.top nav a { color: rgba(255, 255, 255, .75); text-decoration: none; font-weight: 700; font-size: 14px; margin-left: 16px; }
+.wrap { width: min(1040px, 100% - 32px); margin: 0 auto; padding-bottom: 70px; }
+.hero { text-align: center; padding: 18px 0 8px; }
+.shop { display: inline-flex; align-items: center; gap: 10px; padding: 6px 14px 6px 6px; border-radius: 99px; background: rgba(255, 255, 255, .08); border: 1px solid rgba(255, 255, 255, .12); font-weight: 800; }
+.shop .lg { width: 32px; height: 32px; border-radius: 50%; background: #fff; display: grid; place-items: center; overflow: hidden; color: var(--navy); font-weight: 900; }
+.shop .lg img { max-width: 100%; max-height: 100%; object-fit: contain; }
+h1 { font-family: 'Fraunces', serif; font-size: clamp(32px, 6vw, 60px); line-height: 1.05; margin: 16px 0 8px; letter-spacing: -.02em; }
+.sub { color: rgba(255, 255, 255, .7); margin: 0; }
+.badge { display: inline-flex; align-items: center; gap: 8px; margin-top: 14px; padding: 7px 14px; border-radius: 99px; font-weight: 800; font-size: 13px; letter-spacing: .04em; }
+.badge.sealed { background: rgba(247, 207, 107, .14); color: var(--gold-2); border: 1px solid rgba(247, 207, 107, .35); }
+.badge.drawn { background: rgba(52, 211, 153, .14); color: var(--green); border: 1px solid rgba(52, 211, 153, .35); }
+.badge i { width: 8px; height: 8px; border-radius: 50%; background: currentColor; animation: blink 1.2s infinite; }
+@keyframes blink { 50% { opacity: .2; } }
+
+/* stage */
+.stage { margin: 30px auto 0; display: grid; grid-template-columns: 300px 1fr; gap: 34px; align-items: center; }
+.drum-box { position: relative; width: 280px; height: 280px; margin: 0 auto; }
+.drum { position: absolute; inset: 0; border-radius: 50%; border: 8px solid var(--gold-2);
+  background: radial-gradient(circle at 35% 30%, rgba(255, 255, 255, .14), rgba(255, 255, 255, .02) 60%), radial-gradient(circle, #1B2B5A, #0B1430);
+  box-shadow: 0 0 60px rgba(247, 207, 107, .35), inset 0 0 50px rgba(0, 0, 0, .5); }
+.drum.spin { animation: spin 1.1s linear infinite; }
+.drum.slow { animation: spin 7s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.ball { position: absolute; width: 34px; height: 34px; border-radius: 50%; background: radial-gradient(circle at 32% 30%, #fff, var(--gold-2) 45%, #C78A1E); box-shadow: 0 4px 10px rgba(0, 0, 0, .4); }
+.drum-cap { position: absolute; left: 50%; bottom: -14px; transform: translateX(-50%); width: 120px; height: 28px; border-radius: 0 0 20px 20px; background: linear-gradient(#C78A1E, #8a5a0f); }
+.out-ball { position: absolute; left: 50%; top: 50%; width: 92px; height: 92px; margin: -46px; border-radius: 50%; display: grid; place-items: center; text-align: center;
+  font: 700 13px 'IBM Plex Mono', monospace; color: var(--navy); background: radial-gradient(circle at 32% 30%, #fff, var(--gold-2) 50%, #C78A1E); box-shadow: 0 10px 30px rgba(0, 0, 0, .5); opacity: 0; transform: scale(.2); pointer-events: none; }
+.out-ball.show { animation: pop .7s cubic-bezier(.2, 1.6, .4, 1) forwards; }
+@keyframes pop { to { opacity: 1; transform: translate(0, 170px) scale(1); } }
+.panel { background: rgba(255, 255, 255, .05); border: 1px solid rgba(255, 255, 255, .1); border-radius: 24px; padding: 22px; }
+.count { font: 700 clamp(40px, 8vw, 64px) 'IBM Plex Mono', monospace; color: var(--gold-2); letter-spacing: .04em; }
+.mono { font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; word-break: break-all; color: var(--gold-3); }
+.muted { color: var(--muted); }
+.prize-list { display: grid; gap: 8px; margin-top: 12px; }
+.prize { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 16px; background: rgba(255, 255, 255, .05); border: 1px solid rgba(255, 255, 255, .08); }
+.rank { flex: none; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font-weight: 900; color: var(--navy); background: linear-gradient(135deg, var(--gold-3), var(--gold)); }
+
+/* winners */
+.winners { display: grid; gap: 10px; }
+.win { display: grid; grid-template-columns: 44px 1fr auto; gap: 14px; align-items: center; padding: 14px 16px; border-radius: 18px; background: rgba(255, 255, 255, .06);
+  border: 1px solid rgba(247, 207, 107, .25); opacity: 0; transform: translateY(16px) scale(.98); transition: opacity .5s, transform .5s cubic-bezier(.2, 1.3, .4, 1); }
+.win.in { opacity: 1; transform: none; }
+.revealing .win:not(.in) { display: none; }
+.win .code { font: 700 20px 'IBM Plex Mono', monospace; letter-spacing: .08em; }
+.win .who { color: rgba(255, 255, 255, .65); font-size: 14px; }
+.win .pz { text-align: right; font-weight: 800; color: var(--gold-2); }
+.win .pz small { display: block; font-weight: 600; color: var(--muted); font-size: 12px; }
+.win.forfeited { border-color: rgba(248, 113, 113, .3); }
+.win.forfeited .code { text-decoration: line-through; color: rgba(255, 255, 255, .45); }
+.win.backup { border-style: dashed; border-color: rgba(255, 255, 255, .18); }
+.section-title { font-family: 'Fraunces', serif; font-size: 26px; margin: 44px 0 14px; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 46px; padding: 0 20px; border-radius: 14px; font: inherit; font-weight: 800; cursor: pointer; border: 0; text-decoration: none; }
+.btn.gold { background: linear-gradient(135deg, var(--gold-3), var(--gold-2) 35%, var(--gold)); color: var(--navy); }
+.btn.ghost { background: rgba(255, 255, 255, .08); color: #fff; border: 1px solid rgba(255, 255, 255, .2); }
+.row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+
+/* proof */
+.steps { display: grid; gap: 12px; }
+.step { display: grid; grid-template-columns: 36px 1fr; gap: 14px; padding: 16px; border-radius: 18px; background: rgba(255, 255, 255, .04); border: 1px solid rgba(255, 255, 255, .08); }
+.step .n { width: 36px; height: 36px; border-radius: 12px; display: grid; place-items: center; font-weight: 900; background: rgba(247, 207, 107, .15); color: var(--gold-2); }
+.step.ok .n { background: rgba(52, 211, 153, .2); color: var(--green); }
+.step.bad .n { background: rgba(248, 113, 113, .2); color: var(--red); }
+.step b { display: block; margin-bottom: 4px; }
+.step p { margin: 0 0 6px; color: rgba(255, 255, 255, .7); font-size: 14.5px; }
+.result { margin-top: 14px; padding: 14px 16px; border-radius: 16px; font-weight: 800; display: none; }
+.result.ok { display: block; background: rgba(52, 211, 153, .12); color: var(--green); border: 1px solid rgba(52, 211, 153, .35); }
+.result.bad { display: block; background: rgba(248, 113, 113, .12); color: var(--red); border: 1px solid rgba(248, 113, 113, .35); }
+.foot { text-align: center; color: var(--muted); font-size: 13px; padding: 30px 16px; }
+.err { text-align: center; padding: 80px 16px; }
+@media (max-width: 780px) {
+  .stage { grid-template-columns: 1fr; }
+  .drum-box { width: 220px; height: 220px; }
+  .win { grid-template-columns: 36px 1fr; }
+  .win .pz { grid-column: 2; text-align: left; }
+  .top nav a:first-child { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } .win { opacity: 1; transform: none; } }
+</style>
+</head>
+<body>
+  <header class="top">
+    <a class="brand" href="/"><img src="/img/platform-icon.svg" alt=""><span>Genuine Draw</span></a>
+    <nav><a href="/winners">All winners</a><a href="/verify">Verify a coupon</a></nav>
+  </header>
+  <main class="wrap" id="app"><div class="err">Loading the draw…</div></main>
+  <footer class="foot">Every draw on Genuine Draw uses public randomness from drand (League of Entropy) and can be checked by anyone.</footer>
+<script>
+(() => {
+  const $ = s => document.querySelector(s);
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const fmtCode = c => c && c.length === 8 ? c.slice(0, 4) + '-' + c.slice(4) : c;
+  const toDate = s => s ? new Date(s.length > 10 && !s.endsWith('Z') ? s.replace(' ', 'T') + 'Z' : (s.length === 10 ? s + 'T00:00:00' : s)) : null;
+  const fmtDate = s => s ? toDate(s).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' }) : '';
+  const fmtTime = s => s ? toDate(s).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit' }) : '';
+  const id = parseInt(location.pathname.split('/')[2], 10);
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let D = null, timer = null, revealed = false;
+
+  async function load() {
+    const r = await fetch('/api/draws/' + id).catch(() => null);
+    if (!r || !r.ok) { $('#app').innerHTML = '<div class="err"><h1>Draw not found</h1><p class="sub">Check the link and try again.</p></div>'; return; }
+    const prev = D && D.status;
+    D = await r.json();
+    document.title = `${D.campaign.name} · Live draw · Genuine Draw`;
+    if (!prev || prev !== D.status) render(prev === 'sealed' && D.status === 'drawn');
+    if (D.status === 'sealed') { clearTimeout(timer); timer = setTimeout(load, 4000); }
+  }
+
+  const prizeHtml = () => D.prizes.map(p => `<div class="prize"><span class="rank">${p.rank}</span><div><b>${esc(p.name)}</b>${p.quantity > 1 ? ` <span class="muted">× ${p.quantity}</span>` : ''}${p.description ? `<div class="muted" style="font-size:13px">${esc(p.description)}</div>` : ''}</div></div>`).join('');
+  const drum = () => `<div class="drum-box"><div class="drum ${D.status === 'sealed' ? 'slow' : ''}" id="drum">${Array.from({ length: 9 }, (_, i) => {
+    const a = i / 9 * Math.PI * 2, r = 70 + (i % 3) * 18;
+    return `<i class="ball" style="left:calc(50% + ${Math.cos(a) * r}px - 17px);top:calc(50% + ${Math.sin(a) * r}px - 17px)"></i>`; }).join('')}</div><div class="drum-cap"></div><div class="out-ball" id="outBall"></div></div>`;
+
+  function render(justDrawn) {
+    const head = `<section class="hero">
+      <span class="shop"><span class="lg">${D.shop.logo ? `<img src="${esc(D.shop.logo)}" alt="">` : esc(D.shop.name[0])}</span>${esc(D.shop.name)}</span>
+      <h1>${esc(D.campaign.name)}</h1>
+      <p class="sub">${D.entries_count.toLocaleString('en-IN')} entries · draw date ${fmtDate(D.campaign.draw_on)}</p>
+      <span class="badge ${D.status}"><i></i>${D.status === 'sealed' ? 'ENTRIES SEALED · DRAWING' : 'DRAW COMPLETE'}</span>
+    </section>`;
+    if (D.status === 'sealed') {
+      $('#app').innerHTML = head + `<section class="stage">${drum()}
+        <div class="panel">
+          <div class="muted">Waiting for the public random number</div>
+          <div class="count" id="count">--:--</div>
+          <p class="sub">The entry list was sealed at ${fmtTime(D.sealed_at)}. Winners will be picked with drand round <b>#${D.beacon.round}</b>, which nobody can know until ${fmtTime(D.beacon.round_time)}.</p>
+          <p class="muted" style="font-size:13px;margin-top:12px">Sealed list fingerprint</p><div class="mono">${esc(D.entries_hash)}</div>
+          <div class="row" style="margin-top:14px"><a class="btn ghost" href="/api/draws/${D.id}/entries.txt" target="_blank" rel="noopener">Download the sealed entry list</a></div>
+        </div></section>
+        <h2 class="section-title">Prizes</h2><div class="prize-list">${prizeHtml()}</div>`;
+      tick();
+      return;
+    }
+    const won = D.winners.filter(w => !w.backup || w.status === 'won');
+    const reserve = D.winners.filter(w => w.backup && w.status === 'standby');
+    $('#app').innerHTML = head + `<section class="stage">${drum()}
+        <div><div class="row" style="justify-content:space-between;margin-bottom:12px"><h2 class="section-title" style="margin:0">Winners</h2>
+          <button class="btn ghost" id="replay" type="button">↺ Watch the draw again</button></div>
+          <div class="winners" id="winners">${won.map(winRow).join('')}</div></div>
+      </section>
+      ${reserve.length ? `<h2 class="section-title">Backup winners</h2><p class="sub" style="margin-bottom:12px">If a winner doesn't collect their prize within ${D.campaign.claim_days} days, it goes to the next backup in this order.</p><div class="winners" id="backups">${reserve.map(winRow).join('')}</div>` : ''}
+      <h2 class="section-title">Check it yourself</h2>
+      <p class="sub" style="margin-bottom:16px">This draw can be re-run by anyone. Press the button and your own browser repeats every step and compares the result.</p>
+      <div class="steps" id="proof">
+        <div class="step" data-s="1"><span class="n">1</span><div><b>The entry list was sealed</b><p>${D.entries_count} entries were frozen at ${fmtTime(D.sealed_at)}, before anyone could know the random number. Its SHA-256 fingerprint:</p><div class="mono">${esc(D.entries_hash)}</div><p style="margin-top:8px"><a href="/api/draws/${D.id}/entries.txt" target="_blank" rel="noopener">Download the entry list</a>. Each line is an entry number and a private tag for the person (so one person can only win once).</p></div></div>
+        <div class="step" data-s="2"><span class="n">2</span><div><b>A public random number was used</b><p>drand round #${D.beacon.round}, published at ${fmtTime(D.beacon.round_time)} by the League of Entropy (Cloudflare, universities and others). Nobody can predict or change it.</p><div class="mono">${esc(D.beacon.randomness)}</div><p style="margin-top:8px"><a href="${esc(D.beacon.url)}" target="_blank" rel="noopener">See this round on drand</a></p></div></div>
+        <div class="step" data-s="3"><span class="n">3</span><div><b>Both were combined into the seed</b><p>seed = SHA-256( fingerprint + ":" + random number )</p><div class="mono">${esc(D.seed)}</div></div></div>
+        <div class="step" data-s="4"><span class="n">4</span><div><b>Winners were picked by a fixed rule</b><p>For pick k = 0, 1, 2…: take SHA-256( seed + ":" + k ) as a number, divide by the entries left, and the remainder is the position of the next winner in the list. If that person has already won, the pick is set aside. Prizes are filled from rank 1 down, then the backups.</p></div></div>
+      </div>
+      <div class="row" style="margin-top:16px"><button class="btn gold" id="verifyBtn" type="button">Verify this draw in my browser</button></div>
+      <div class="result" id="verifyOut"></div>`;
+    $('#replay').onclick = () => reveal(true);
+    $('#verifyBtn').onclick = verify;
+    const fresh = justDrawn || (D.drawn_at && Date.now() - toDate(D.drawn_at).getTime() < 10 * 60000 && !revealed);
+    reveal(fresh && !reduce);
+  }
+  function winRow(w) {
+    const label = w.backup && w.status === 'standby' ? `Backup ${w.pick_no - D.winners.filter(x => !x.backup).length}` : w.prize_name;
+    const note = w.status === 'forfeited' ? 'Not collected · passed to backup' : w.replaces_id ? 'Backup winner' : w.collected ? 'Collected ✓' : w.backup ? 'Reserve' : `Rank ${w.prize_rank}`;
+    return `<div class="win ${w.status === 'forfeited' ? 'forfeited' : ''} ${w.backup && w.status === 'standby' ? 'backup' : ''}"><span class="rank">${w.prize_rank || '·'}</span>
+      <div><div class="code">${esc(fmtCode(w.code))}</div><div class="who">${esc(w.name)}${w.phone ? ' · ' + esc(w.phone) : ''}</div></div>
+      <div class="pz">${esc(label)}<small>${esc(note)}</small></div></div>`;
+  }
+  // Reveal winners one at a time, lowest prize first, with a ball popping out of the drum.
+  async function reveal(animate) {
+    revealed = true;
+    const rows = [...document.querySelectorAll('#winners .win')];
+    const backs = [...document.querySelectorAll('#backups .win')];
+    const lists = [document.querySelector('#winners'), document.querySelector('#backups')].filter(Boolean);
+    if (!animate) { lists.forEach(l => l.classList.remove('revealing')); [...rows, ...backs].forEach(r => r.classList.add('in')); return; }
+    lists.forEach(l => l.classList.add('revealing'));
+    [...rows, ...backs].forEach(r => r.classList.remove('in'));
+    const drumEl = $('#drum'), ball = $('#outBall'), order = [...rows].reverse();
+    const sleep = ms => new Promise(r => setTimeout(r, ms));
+    for (const row of order) {
+      drumEl.classList.add('spin');
+      await sleep(1400);
+      drumEl.classList.remove('spin');
+      ball.textContent = row.querySelector('.code').textContent;
+      ball.classList.remove('show'); void ball.offsetWidth; ball.classList.add('show');
+      await sleep(700);
+      row.classList.add('in');
+      await sleep(600);
+      ball.classList.remove('show');
+    }
+    backs.forEach((r, i) => setTimeout(() => r.classList.add('in'), i * 120));
+    setTimeout(() => lists.forEach(l => l.classList.remove('revealing')), backs.length * 120 + 50);
+  }
+  function tick() {
+    const el = $('#count'); if (!el || !D || D.status !== 'sealed') return;
+    const ms = new Date(D.beacon.round_time).getTime() - Date.now();
+    el.textContent = ms > 0 ? `${String(Math.floor(ms / 60000)).padStart(2, '0')}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}` : 'Drawing…';
+    setTimeout(tick, 500);
+  }
+
+  // The same steps as the server, done with the browser's own SHA-256.
+  const sha = async s => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)))].map(b => b.toString(16).padStart(2, '0')).join('');
+  async function verify() {
+    const out = $('#verifyOut'), mark = (n, ok) => document.querySelector(`.step[data-s="${n}"]`).classList.add(ok ? 'ok' : 'bad');
+    document.querySelectorAll('.step').forEach(s => s.classList.remove('ok', 'bad'));
+    out.className = 'result'; $('#verifyBtn').disabled = true; $('#verifyBtn').textContent = 'Checking…';
+    try {
+      const list = await (await fetch(`/api/draws/${D.id}/entries.txt`)).text();
+      const ok1 = await sha(list) === D.entries_hash; mark(1, ok1);
+      let rnd = D.beacon.randomness, ok2 = true, note = '';
+      try {
+        const b = await (await fetch(`https://drand.cloudflare.com/public/${D.beacon.round}`)).json();
+        ok2 = b.randomness === D.beacon.randomness;
+      } catch { note = ' (could not reach drand from this browser; used the published number)'; }
+      mark(2, ok2);
+      const seed = await sha(`${D.entries_hash}:${rnd}`); const ok3 = seed === D.seed; mark(3, ok3);
+      const pool = list.split('\n').map(l => { const [code, tag] = l.split(','); return { code, tag }; });
+      const seen = new Set(), picks = [], need = D.winners.length;
+      for (let k = 0; picks.length < need && pool.length; k++) {
+        const idx = Number(BigInt('0x' + await sha(`${seed}:${k}`)) % BigInt(pool.length));
+        const [e] = pool.splice(idx, 1);
+        if (!seen.has(e.tag)) { seen.add(e.tag); picks.push(e.code); }
+      }
+      const drawn = [...D.winners].sort((a, b) => a.pick_no - b.pick_no).map(w => w.code);
+      const ok4 = JSON.stringify(picks) === JSON.stringify(drawn); mark(4, ok4);
+      const all = ok1 && ok2 && ok3 && ok4;
+      out.className = 'result ' + (all ? 'ok' : 'bad');
+      out.textContent = all ? `✓ Verified: your browser picked exactly the same ${need} winners in the same order${note}.` : '✗ Something did not match. Please contact Genuine Draw.';
+    } catch (e) { out.className = 'result bad'; out.textContent = 'Could not complete the check: ' + e.message; }
+    $('#verifyBtn').disabled = false; $('#verifyBtn').textContent = 'Verify this draw in my browser';
+  }
+  load();
+})();
+</script>
+</body>
+</html>

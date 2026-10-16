@@ -157,6 +157,15 @@
     $('#entryPrizes').innerHTML = prizeHtml(campaign.prizes);
     $('#entryVerify').href = $('#verifyLink').href || '/verify/' + code;
     $('#entryShare').href = 'https://wa.me/?text=' + encodeURIComponent(`I just entered ${brand.name}'s Lucky Draw! 🎟️ Prizes include ${(campaign.prizes || []).map(p => p.name).slice(0, 3).join(', ')}. Get a coupon at ${brand.name} and enter too.`);
+    // After the draw: tell non-winners and point everyone to the public results.
+    if (campaign.draw_id) {
+      const base = ($('#helpLink').href || '').replace(/\/my\?.*$/, '') || '';
+      const done = campaign.draw_status === 'drawn';
+      document.querySelector('#s-entry .headline').textContent = done ? 'The draw has taken place' : 'The draw is happening now';
+      document.querySelector('#s-entry .subline').textContent = done ? 'Your entry did not win this time. Thank you for taking part!' : 'Entries are sealed and winners are being picked.';
+      $('#entryVerify').href = base + '/draw/' + campaign.draw_id;
+      $('#entryVerify').textContent = done ? '🏆 See the winners and proof' : '🔴 Watch the draw live';
+    }
     show('s-entry');
     if (fresh && window.confetti) confetti({ particleCount: 120, spread: 75, origin: { y: .35 }, colors: [brand.color || '#F47216', '#F6C24A', '#FFFFFF'] });
   }

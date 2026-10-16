@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#14213D">
+<title>Winners · Genuine Draw</title>
+<meta name="description" content="Every Genuine Draw lucky draw and its winners, each with a proof anyone can check.">
+<link rel="icon" href="/img/platform-icon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Albert+Sans:wght@400;500;600;700;800;900&family=Fraunces:opsz,wght@9..144,800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/admin/admin.css">
+<link rel="stylesheet" href="/portal.css">
+<style>
+  .w-list { display: grid; gap: 12px; }
+  .w-card { display: grid; grid-template-columns: 52px 1fr auto; gap: 14px; align-items: center; background: #fff; border: 1px solid #E6EAF3; border-radius: 18px; padding: 16px; text-decoration: none; color: inherit; transition: transform .2s, box-shadow .2s; }
+  .w-card:hover { transform: translateY(-3px); box-shadow: 0 20px 40px -26px rgba(20, 33, 61, .5); }
+  .w-card h4 { margin: 0; font-size: 16px; color: var(--navy); }
+  .w-card small { display: block; color: var(--muted); margin-top: 3px; }
+  .w-go { font-weight: 800; color: var(--navy-2); white-space: nowrap; }
+  @media (max-width: 560px) { .w-card { grid-template-columns: 44px 1fr; } .w-go { grid-column: 2; } }
+</style>
+</head>
+<body class="portal">
+  <header class="p-top">
+    <a class="p-brand" href="/"><img src="/img/platform-icon.svg" alt=""><span>Genuine Draw</span></a>
+    <nav class="p-links"><a href="/winners" class="on">Winners</a><a href="/verify">Verify</a><a href="/my">My coupons</a></nav>
+  </header>
+  <main class="p-wrap wide">
+    <div class="p-hero"><h1>Lucky draw winners</h1><p>Every draw is picked with public randomness and can be checked by anyone. Open a draw to see its proof.</p></div>
+    <div class="w-list" id="list"><div class="empty-state">Loading…</div></div>
+  </main>
+  <footer class="p-foot"><img src="/img/platform-icon.svg" alt="">Genuine Draw · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a></footer>
+<script>
+(async () => {
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const fmt = s => new Date(s.replace(' ', 'T') + 'Z').toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+  const rows = await fetch('/api/winners').then(r => r.json()).catch(() => []);
+  document.getElementById('list').innerHTML = rows.length ? rows.map(d => `<a class="w-card" href="/draw/${d.id}">
+    <div class="v-logo" style="${d.logo ? '' : 'background:' + esc(d.color)}">${d.logo ? `<img src="${esc(d.logo)}" alt="">` : esc(d.shop[0])}</div>
+    <div><h4>${esc(d.campaign)}</h4><small>${esc(d.shop)} · drawn ${fmt(d.drawn_at)} · ${d.entries_count} entries · ${d.winners} winner${d.winners === 1 ? '' : 's'}</small>
+      <small>${esc(d.prizes || '')}</small></div>
+    <span class="w-go">See winners →</span></a>`).join('') : '<div class="p-card empty-state"><span>🎟️</span>No draws have taken place yet.</div>';
+})();
+</script>
+</body>
+</html>
