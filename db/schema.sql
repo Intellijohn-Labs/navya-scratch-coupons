@@ -305,3 +305,18 @@ CREATE TABLE IF NOT EXISTS draw_winners (
   status_at     TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_draw_winners_draw ON draw_winners(draw_id, pick_no);
+
+-- Draws of any size: the sealed list is stored as chunks (Vercel Blob when configured, otherwise here).
+ALTER TABLE draws ALTER COLUMN entries_list DROP NOT NULL;
+ALTER TABLE draws ADD COLUMN IF NOT EXISTS algo SMALLINT NOT NULL DEFAULT 1;
+ALTER TABLE draws ADD COLUMN IF NOT EXISTS chunk_count INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE draws ADD COLUMN IF NOT EXISTS countdown_seconds INTEGER NOT NULL DEFAULT 90;
+CREATE TABLE IF NOT EXISTS draw_chunks (
+  draw_id  INTEGER NOT NULL REFERENCES draws(id) ON DELETE CASCADE,
+  idx      INTEGER NOT NULL,
+  hash     TEXT    NOT NULL,
+  lines    INTEGER NOT NULL,
+  body     TEXT,            -- the chunk itself when Blob storage isn't set up
+  url      TEXT,            -- public Blob URL otherwise
+  PRIMARY KEY (draw_id, idx)
+);

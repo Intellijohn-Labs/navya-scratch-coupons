@@ -616,15 +616,17 @@ app.post('/api/my/complaints/:ticket/escalate', a(async (req, res) => {
 }));
 
 // ---------------------------------------------------------------- Phase 3: provably fair Lucky Draw
-// 1. Seal: the full entry list is frozen, its SHA-256 fingerprint is recorded in the tamper-evident log, and a
-//    drand round about 90 seconds in the future is chosen. Nobody (us included) can know that round's number yet.
-// 2. Draw: once the round is published, seed = sha256(fingerprint + ':' + drand randomness), and winners are
-//    picked from the list by a fixed rule anyone can re-run (see runPicks and /draw/:id).
+// 1. Seal: the full entry list is frozen and fingerprinted (SHA-256, recorded in the tamper-evident log), and a drand
+//    round far enough ahead for the live countdown is chosen. Nobody (us included) can know that round's number yet.
+// 2. Draw: once the round is published, seed = sha256(fingerprint + ':' + drand randomness), and winners are picked
+//    by the fixed rules in draw-engine.js, which anyone can re-run (see /draw/:id).
+const engine = require('./draw-engine');
 const DRAND = { genesis: 1595431050, period: 30, chain: '8990e7a9aaed2ffed73dbd7092123d6f289930540d7651336225dc172e51b2ce',
   mirrors: ['https://drand.cloudflare.com', 'https://api.drand.sh', 'https://api2.drand.sh', 'https://api3.drand.sh'] };
-const sha256 = s => crypto.createHash('sha256').update(s).digest('hex');
-const drandRoundAt = ms => Math.floor((ms / 1000 - DRAND.genesis) / DRAND.period) + 1;
+const sha256 = engine.sha256;
 const drandRoundTime = r => (DRAND.genesis + (Number(r) - 1) * DRAND.period) * 1000;
+// The first round published at least `seconds` from now.
+const drandRoundAfter = seconds => Math.ceil(((Date.now() + seconds * 1000) / 1000 - DRAND.genesis) / DRAND.period) + 1;
 async function drandRound(round) {
   for (const m of DRAND.mirrors) {
     try {
@@ -636,29 +638,46 @@ async function drandRound(round) {
   }
   return null;
 }
-// The published entry list: one line per entry, "CODE,PERSON", sorted by code. PERSON is a private tag for the
-// mobile number, so anyone can see which entries belong to the same person without learning the number.
+// The sealed entry list: one sorted query, fetched through a cursor 50,000 rows at a time (needs a transaction
+// client). Each line is "CODE,PERSON"; PERSON is a private tag for the mobile number (same person, same tag).
 async function entryList(campaignId, client) {
-  const rows = await q(`SELECT c.code, c.phone FROM coupons c JOIN batches b ON b.id = c.batch_id
-    WHERE b.campaign_id = $1 AND c.draw_entry = 1 AND c.status IN ('claimed','redeemed') ORDER BY c.code`, [campaignId], client);
-  const key = await secret();
-  return rows.map(r => `${r.code},${crypto.createHmac('sha256', key).update(`${campaignId}:${r.phone}`).digest('hex').slice(0, 12)}`);
+  const key = await secret(), lines = [];
+  await q(`DECLARE draw_entries NO SCROLL CURSOR FOR SELECT c.code, c.phone FROM coupons c JOIN batches b ON b.id = c.batch_id
+    WHERE b.campaign_id = $1 AND c.draw_entry = 1 AND c.status IN ('claimed','redeemed') ORDER BY c.code COLLATE "C"`, [campaignId], client);
+  for (;;) {
+    const rows = await q('FETCH 50000 FROM draw_entries', [], client);
+    for (const r of rows) lines.push(`${r.code},${crypto.createHmac('sha256', key).update(`${campaignId}:${r.phone}`).digest('hex').slice(0, 12)}`);
+    if (rows.length < 50000) break;
+  }
+  await q('CLOSE draw_entries', [], client);
+  return lines;
+}
+// List chunks go to Vercel Blob when it is set up (BLOB_READ_WRITE_TOKEN), otherwise into the database.
+async function storeChunk(drawId, idx, chunk, client) {
+  let url = null;
+  if (process.env.BLOB_READ_WRITE_TOKEN) {
+    try {
+      const { put } = require('@vercel/blob');
+      url = (await put(`draws/${drawId}/entries-${String(idx + 1).padStart(3, '0')}-${chunk.hash.slice(0, 12)}.txt`, chunk.text,
+        { access: 'public', contentType: 'text/plain; charset=utf-8', addRandomSuffix: false, allowOverwrite: true })).url;
+    } catch (e) { console.error('Blob upload failed, keeping the chunk in the database:', e.message); }
+  }
+  await q('INSERT INTO draw_chunks(draw_id, idx, hash, lines, body, url) VALUES($1,$2,$3,$4,$5,$6)',
+    [drawId, idx, chunk.hash, chunk.lines, url ? null : chunk.text, url], client);
+}
+async function loadLines(d, client) {
+  if (d.algo === 1) return d.entries_list.split('\n');
+  const chunks = await q('SELECT idx, hash, body, url FROM draw_chunks WHERE draw_id = $1 ORDER BY idx', [d.id], client);
+  const lines = [];
+  for (const c of chunks) {
+    const text = c.body ?? await (await fetch(c.url)).text();
+    if (sha256(text) !== c.hash) throw new Error(`Entry list chunk ${c.idx + 1} does not match its fingerprint`);
+    for (const l of text.split('\n')) lines.push(l);
+  }
+  return lines;
 }
 // Prize slots in drawing order: rank 1 first, each repeated by its quantity.
 const prizeSlots = prizes => prizes.flatMap(p => Array.from({ length: p.quantity }, () => p));
-// Pick k takes sha256(seed + ':' + k) as a number, modulo the entries left in the pool, and removes that entry.
-// One prize per person: an entry whose person was already picked is set aside and the next pick is made.
-function runPicks(lines, seed, need) {
-  const pool = lines.map(l => { const [code, tag] = l.split(','); return { code, tag }; });
-  const seen = new Set(), picks = [];
-  for (let k = 0; picks.filter(p => !p.skipped).length < need && pool.length; k++) {
-    const idx = Number(BigInt('0x' + sha256(`${seed}:${k}`)) % BigInt(pool.length));
-    const [e] = pool.splice(idx, 1);
-    if (seen.has(e.tag)) picks.push({ k, code: e.code, skipped: true });
-    else { seen.add(e.tag); picks.push({ k, code: e.code }); }
-  }
-  return picks;
-}
 async function newRewardCode(t) {
   let r;
   do { r = 'GD' + randomCode(6); } while (await one('SELECT 1 FROM coupons WHERE reward_code = $1', [r], t));
@@ -683,22 +702,24 @@ async function finalizeDraw(drawId) {
     const camp = await one('SELECT * FROM campaigns WHERE id = $1', [d.campaign_id], t);
     const slots = prizeSlots(await q('SELECT * FROM campaign_prizes WHERE campaign_id = $1 ORDER BY rank, id', [d.campaign_id], t));
     const seed = sha256(`${d.entries_hash}:${beacon.randomness}`);
-    const picks = runPicks(d.entries_list.split('\n'), seed, slots.length + camp.backups);
+    const picks = engine.runPicks(d.algo, await loadLines(d, t), seed, slots.length + camp.backups);
     const chosen = picks.filter(p => !p.skipped);
     const expires = daysAhead(camp.claim_days), winners = [];
-    for (let i = 0; i < chosen.length; i++) {
-      const c = await one('SELECT * FROM coupons WHERE code = $1', [chosen[i].code], t);
-      const prize = slots[i];
-      if (prize) {
-        await q(`UPDATE coupons SET gift_kind = 'prize', gift_name = $2, reward_code = $3, reward_expires = $4 WHERE id = $1`,
-          [c.id, prize.name, await newRewardCode(t), expires], t);
-        winners.push({ c, prize: prize.name });
-      }
-      await q(`INSERT INTO draw_winners(draw_id, campaign_id, tenant_id, pick_no, backup, prize_id, prize_rank, prize_name, coupon_id, coupon_code, status, status_at)
-        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-      [d.id, d.campaign_id, d.tenant_id, i + 1, prize ? 0 : 1, prize ? prize.id : null, prize ? prize.rank : null, prize ? prize.name : null,
-        c.id, c.code, prize ? 'won' : 'standby', utcNow()], t);
+    // A few bulk statements, so hundreds of winners save as fast as one.
+    const byCode = new Map((await q('SELECT * FROM coupons WHERE code = ANY($1)', [chosen.map(p => p.code)], t)).map(c => [c.code, c]));
+    const rows = chosen.map((p, i) => ({ c: byCode.get(p.code), prize: slots[i] || null, pick: i + 1 }));
+    const won = rows.filter(r => r.prize);
+    if (won.length) {
+      await q(`UPDATE coupons SET gift_kind = 'prize', gift_name = u.gift, reward_code = u.reward, reward_expires = $4
+        FROM unnest($1::int[], $2::text[], $3::text[]) AS u(id, gift, reward) WHERE coupons.id = u.id`,
+      [won.map(r => r.c.id), won.map(r => r.prize.name), await uniqueRewardCodes(won.length, t), expires], t);
     }
+    await q(`INSERT INTO draw_winners(draw_id, campaign_id, tenant_id, pick_no, backup, prize_id, prize_rank, prize_name, coupon_id, coupon_code, status, status_at)
+      SELECT $1, $2, $3, u.pick, u.backup, u.prize_id, u.rank, u.name, u.coupon_id, u.code, u.status, $4
+      FROM unnest($5::int[], $6::smallint[], $7::int[], $8::int[], $9::text[], $10::int[], $11::text[], $12::text[]) AS u(pick, backup, prize_id, rank, name, coupon_id, code, status)`,
+    [d.id, d.campaign_id, d.tenant_id, utcNow(), rows.map(r => r.pick), rows.map(r => r.prize ? 0 : 1), rows.map(r => r.prize?.id ?? null), rows.map(r => r.prize?.rank ?? null),
+      rows.map(r => r.prize?.name ?? null), rows.map(r => r.c.id), rows.map(r => r.c.code), rows.map(r => r.prize ? 'won' : 'standby')], t);
+    for (const r of won) winners.push({ c: r.c, prize: r.prize.name });
     await q(`UPDATE draws SET status = 'drawn', beacon_randomness = $2, beacon_signature = $3, beacon_url = $4, seed = $5, picks = $6, drawn_at = $7 WHERE id = $1`,
       [d.id, beacon.randomness, beacon.signature, beacon.url, seed, JSON.stringify(picks), utcNow()], t);
     await q("UPDATE campaigns SET status = 'drawn' WHERE id = $1", [d.campaign_id], t);
@@ -707,29 +728,44 @@ async function finalizeDraw(drawId) {
         winners: winners.map(w => `${w.prize}: ${w.c.code}`), backups: chosen.slice(slots.length).map(p => p.code) } }, t);
     return { winners, shop: (await one('SELECT name FROM tenants WHERE id = $1', [d.tenant_id], t)).name };
   });
-  if (done) for (const w of done.winners) await tellWinner(w.c, w.prize, done.shop);
+  // WhatsApp the winners ten at a time (tellWinner skips demo coupons).
+  if (done) for (let i = 0; i < done.winners.length; i += 10) await Promise.all(done.winners.slice(i, i + 10).map(w => tellWinner(w.c, w.prize, done.shop)));
+}
+async function uniqueRewardCodes(n, t) {
+  const codes = new Set();
+  while (codes.size < n) {
+    const fresh = [...new Set(Array.from({ length: n - codes.size }, () => 'GD' + randomCode(6)))].filter(c => !codes.has(c));
+    const taken = new Set((await q('SELECT reward_code FROM coupons WHERE reward_code = ANY($1)', [fresh], t)).map(r => r.reward_code));
+    for (const c of fresh) if (!taken.has(c)) codes.add(c);
+  }
+  return [...codes];
 }
 
-// Everything the public page needs. Names and numbers are masked; the merchant's own view gets them in full.
+// Everything the public page needs. Winners' names are shown in full; phone numbers stay masked
+// (the merchant's own view gets them in full).
 async function drawDetail(d, full = false) {
-  const [camp, tenant, prizes, rows] = await Promise.all([
+  const [camp, tenant, prizes, rows, chunks] = await Promise.all([
     one('SELECT * FROM campaigns WHERE id = $1', [d.campaign_id]),
     one('SELECT name, slug, logo, color FROM tenants WHERE id = $1', [d.tenant_id]),
     q('SELECT rank, name, description, quantity FROM campaign_prizes WHERE campaign_id = $1 ORDER BY rank, id', [d.campaign_id]),
     q(`SELECT w.*, c.customer_name, c.phone, c.area, c.status AS coupon_status, c.reward_code, c.reward_expires, c.redeemed_at
        FROM draw_winners w LEFT JOIN coupons c ON c.id = w.coupon_id WHERE w.draw_id = $1 ORDER BY w.pick_no, w.id`, [d.id]),
+    q('SELECT idx, hash, lines, url FROM draw_chunks WHERE draw_id = $1 ORDER BY idx', [d.id]),
   ]);
   const round = Number(d.beacon_round);
   return {
-    id: d.id, status: d.status, campaign: { id: camp.id, name: camp.name, description: camp.description, terms: camp.terms, ends_on: camp.ends_on, draw_on: camp.draw_on, claim_days: camp.claim_days, backups: camp.backups },
+    id: d.id, status: d.status, algo: d.algo, countdown_seconds: d.countdown_seconds,
+    campaign: { id: camp.id, name: camp.name, description: camp.description, terms: camp.terms, ends_on: camp.ends_on, draw_on: camp.draw_on, claim_days: camp.claim_days, backups: camp.backups },
     shop: tenant, prizes,
     entries_count: d.entries_count, entries_hash: d.entries_hash, sealed_at: d.sealed_at, drawn_at: d.drawn_at,
+    chunks: d.algo === 1 ? [{ idx: 0, hash: d.entries_hash, lines: d.entries_count, url: `/api/draws/${d.id}/entries.txt` }]
+      : chunks.map(c => ({ idx: c.idx, hash: c.hash, lines: c.lines, url: c.url || `/api/draws/${d.id}/chunks/${c.idx + 1}.txt` })),
     beacon: { source: 'drand (League of Entropy)', chain: DRAND.chain, round, round_time: new Date(drandRoundTime(round)).toISOString(),
       randomness: d.beacon_randomness, signature: d.beacon_signature, url: d.beacon_url || `${DRAND.mirrors[0]}/public/${round}` },
-    seed: d.seed, picks: d.picks || [],
+    seed: d.seed,
     winners: rows.map(w => ({
       id: w.id, pick_no: w.pick_no, backup: !!w.backup, prize_rank: w.prize_rank, prize_name: w.prize_name, code: w.coupon_code, status: w.status, replaces_id: w.replaces_id,
-      name: full ? w.customer_name : maskName(w.customer_name || ''), phone: full ? w.phone : maskPhone(w.phone || ''), area: w.area || '',
+      name: w.customer_name || '', phone: full ? w.phone : maskPhone(w.phone || ''), area: w.area || '',
       ...(full ? { reward_code: w.reward_code, reward_expires: w.reward_expires, coupon_status: w.coupon_status, redeemed_at: w.redeemed_at, status_at: w.status_at } : { collected: w.coupon_status === 'redeemed' }),
     })),
   };
@@ -744,9 +780,24 @@ app.get('/api/draws/:id', a(async (req, res) => {
   res.json({ ...(await drawDetail(d)), now: new Date().toISOString() });
 }));
 app.get('/api/draws/:id/entries.txt', a(async (req, res) => {
-  const d = await one('SELECT entries_list, campaign_id FROM draws WHERE id = $1', [int(req.params.id)]);
+  const d = await one('SELECT id, algo, entries_list, chunk_count FROM draws WHERE id = $1', [int(req.params.id)]);
   if (!d) throw fail(404, 'Draw not found');
-  res.set('Content-Type', 'text/plain; charset=utf-8').set('Content-Disposition', `inline; filename="draw-${req.params.id}-entries.txt"`).send(d.entries_list);
+  if (d.algo !== 1) return res.redirect(`/api/draws/${d.id}/chunks/1.txt`);
+  res.set('Content-Type', 'text/plain; charset=utf-8').send(d.entries_list);
+}));
+app.get('/api/draws/:id/chunks/:n.txt', a(async (req, res) => {
+  const c = await one('SELECT body, url FROM draw_chunks WHERE draw_id = $1 AND idx = $2', [int(req.params.id), int(req.params.n) - 1]);
+  if (!c) throw fail(404, 'Not found');
+  if (c.url) return res.redirect(c.url);
+  res.set('Content-Type', 'text/plain; charset=utf-8').set('Cache-Control', 'public, max-age=31536000, immutable').send(c.body);
+}));
+// Names for the spinning reel on the live page: a random sample of up to 2,000 entries.
+app.get('/api/draws/:id/reel', a(async (req, res) => {
+  const d = await one('SELECT campaign_id, entries_hash FROM draws WHERE id = $1', [int(req.params.id)]);
+  if (!d) throw fail(404, 'Draw not found');
+  const rows = await q(`SELECT c.code, c.customer_name AS name, c.area FROM coupons c JOIN batches b ON b.id = c.batch_id
+    WHERE b.campaign_id = $1 AND c.draw_entry = 1 ORDER BY md5(c.code || $2) LIMIT 2000`, [d.campaign_id, d.entries_hash]);
+  res.set('Cache-Control', 'public, max-age=300').json(rows);
 }));
 app.get('/api/winners', a(async (req, res) => {
   res.json(await q(`SELECT d.id, d.drawn_at, d.entries_count, cp.name AS campaign, t.name AS shop, t.logo, t.color,
@@ -1404,10 +1455,13 @@ app.post('/api/admin/campaigns/:id/draw', a(async (req, res) => {
       await q('SELECT id FROM campaigns WHERE id = $1 FOR UPDATE', [camp.id], t);   // no new entries while the list is frozen
       const lines = await entryList(camp.id, t);
       if (!lines.length) throw fail(409, 'There are no entries in this draw yet.');
-      const text = lines.join('\n'), hash = sha256(text), round = drandRoundAt(Date.now()) + 3;
-      const row = await one(`INSERT INTO draws(campaign_id, tenant_id, status, entries_count, entries_hash, entries_list, beacon_round, run_by, sealed_at)
-        VALUES($1,$2,'sealed',$3,$4,$5,$6,$7,$8) RETURNING id`, [camp.id, T(req), lines.length, hash, text, round, `${req.actor.name} (${req.actor.type})`, utcNow()], t);
-      await log(req, 'draw.sealed', 'campaign', camp.id, { campaign: camp.name, entries: lines.length, entries_hash: hash,
+      const { chunks, fingerprint } = engine.chunkList(lines);
+      const countdown = engine.countdownSeconds(lines.length), round = drandRoundAfter(countdown);
+      const row = await one(`INSERT INTO draws(campaign_id, tenant_id, status, algo, entries_count, entries_hash, chunk_count, countdown_seconds, beacon_round, run_by, sealed_at)
+        VALUES($1,$2,'sealed',2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+      [camp.id, T(req), lines.length, fingerprint, chunks.length, countdown, round, `${req.actor.name} (${req.actor.type})`, utcNow()], t);
+      for (let i = 0; i < chunks.length; i++) await storeChunk(row.id, i, chunks[i], t);
+      await log(req, 'draw.sealed', 'campaign', camp.id, { campaign: camp.name, entries: lines.length, entries_hash: fingerprint, chunks: chunks.map(c => c.hash),
         drand_round: round, drand_time: new Date(drandRoundTime(round)).toISOString() }, t);
       return row.id;
     });

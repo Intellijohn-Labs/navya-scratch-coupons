@@ -32,6 +32,8 @@ On or after the draw date the owner presses **Run the draw** on the campaign:
 1. **Seal:** the entry list is frozen (no new entries), its SHA-256 fingerprint is written to the activity log, and a drand round about 90 s in the future is chosen.
 2. **Draw:** when that round is published, `seed = sha256(fingerprint + ":" + drand randomness)`. Pick k takes `sha256(seed + ":" + k)` modulo the entries left; one prize per person; prizes from rank 1 down, then backups.
 
+**Any size (version 2 draws):** the list is cut into parts of 50,000 entries, each with its own SHA-256; the fingerprint is the SHA-256 of those part fingerprints. Pick k takes position `sha256(seed:k) mod left` and the last entry moves into that spot, so a million entries draw in milliseconds (rules in [draw-engine.js](draw-engine.js)). List parts are stored in Vercel Blob when `BLOB_READ_WRITE_TOKEN` is set, otherwise in the `draw_chunks` table. The live countdown depends on the number of entries: up to 1,000 → 30 s, 10,000 → 60 s, 50,000 → 90 s, 200,000 → 2 min, more → 3 min. During it the live page spins a reel of entrants' names (a random 2,000 for big draws), then lands on each winner.
+
 Winners' coupons become prizes with a reward code (valid for the campaign's "collect within" days) and are redeemed at the counter like any prize. **Forfeit** passes a prize to the next backup. `/draw/:id` is the public live page with a "Verify in my browser" button that re-runs every step; `/winners` lists all draws. Winners get the `gd_draw_winner` WhatsApp template.
 
 ### Complaints (Phase 2)
