@@ -8,6 +8,7 @@
   if (reduce) document.documentElement.classList.add('reduce');
   if (!hasGsap) document.documentElement.classList.add('no-js');
   $('#yr').textContent = new Date().getFullYear();
+  const rd = $('#rDate'); if (rd) rd.textContent = new Date().toLocaleDateString('en-GB');
 
   // ---------------------------------------------------------------- smooth scroll
   let lenis = null;
@@ -260,7 +261,7 @@
     gsap.registerPlugin(ScrollTrigger);
     gsap.to('.hero .reveal', { opacity: 1, y: 0, duration: 1.1, ease: 'power3.out', stagger: .12, delay: .15 });
     const groups = ['.trust-item', '.modes h2, .modes .eyebrow', '.mode', '.genuine h2, .genuine .sub, .genuine .eyebrow', '.g-card',
-      '.demo-grid > *', '.biz .devices', '.biz h2, .biz .eyebrow', '.feat li', '.who h2, .who .eyebrow', '.who-tile', '.contact-card',
+      '.demo-grid > *', '.biz .devices', '.biz h2, .biz .eyebrow', '.feat li', '.who-copy > *', '.contact-card',
       '.faq h2, .faq .eyebrow', 'details', '.final-copy > *', '.how-text h2, .how-text .eyebrow'];
     for (const sel of groups) {
       gsap.set(sel, { opacity: 0, y: 40 });
@@ -281,6 +282,11 @@
       else chainTl.from(el, { opacity: 0, y: 20, scale: .9, duration: .45, ease: 'back.out(1.6)' });
     });
     chainTl.to('#chain .seal', { boxShadow: '0 0 40px rgba(34,208,122,.45)', repeat: 1, yoyo: true, duration: .5 });
+    // the receipt prints line by line, then the coupon tears off a little
+    const rc = gsap.timeline({ scrollTrigger: { trigger: '#receipt', start: 'top 80%', once: true } });
+    rc.from('#receipt', { clipPath: 'inset(0 0 100% 0)', duration: 1.6, ease: 'steps(24)' })
+      .from('#receipt .r-line', { opacity: 0, x: -8, duration: .25, stagger: .08 }, '-=1.2')
+      .to('#receipt .r-coupon', { rotate: 3.5, y: 10, duration: .7, ease: 'back.out(2)' }, '+=.1');
     // dashboard bars grow
     gsap.from('.lp-bars i', { scaleY: 0, duration: 1, ease: 'power3.out', stagger: .06, scrollTrigger: { trigger: '.devices', start: 'top 80%', once: true } });
     // final CTA zoom
