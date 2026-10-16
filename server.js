@@ -665,8 +665,11 @@ async function newRewardCode(t) {
   return r;
 }
 const daysAhead = n => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
-const tellWinner = (c, prize, shop) => sendTemplate(c.phone, 'gd_draw_winner',
-  [String(c.customer_name || '').split(' ')[0] || 'there', c.code.slice(0, 4) + '-' + c.code.slice(4), prize, shop]);
+// Demo (sample) coupons never message anyone: their phone numbers are made up.
+const tellWinner = async (c, prize, shop) => {
+  if ((await one('SELECT sample FROM batches WHERE id = $1', [c.batch_id]))?.sample) return false;
+  return sendTemplate(c.phone, 'gd_draw_winner', [String(c.customer_name || '').split(' ')[0] || 'there', c.code.slice(0, 4) + '-' + c.code.slice(4), prize, shop]);
+};
 
 // Finish a sealed draw once its drand round is out. Safe to call from any request: the row lock makes it run once.
 async function finalizeDraw(drawId) {
@@ -1137,7 +1140,10 @@ app.post('/api/admin/clear-sample', a(async (req, res) => {
       FROM (SELECT c.gift_id, COUNT(*) AS n FROM coupons c JOIN batches b ON b.id = c.batch_id
             WHERE b.tenant_id = $1 AND b.sample = 1 AND c.gift_id IS NOT NULL GROUP BY c.gift_id) s
       WHERE g.id = s.gift_id`, [T(req)], t);
+    const camps = (await q('SELECT DISTINCT campaign_id FROM batches WHERE tenant_id = $1 AND sample = 1 AND campaign_id IS NOT NULL', [T(req)], t)).map(r => r.campaign_id);
     await q('DELETE FROM batches WHERE tenant_id = $1 AND sample = 1', [T(req)], t);
+    // A campaign left with no coupons was demo-only: remove it (and any demo draw) too.
+    if (camps.length) await q('DELETE FROM campaigns c WHERE c.id = ANY($1) AND NOT EXISTS (SELECT 1 FROM batches b WHERE b.campaign_id = c.id)', [camps], t);
     await log(req, 'demo.cleared', 'merchant', T(req), {}, t);
   });
   res.json({ ok: true });
