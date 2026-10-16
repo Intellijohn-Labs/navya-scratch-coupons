@@ -323,3 +323,59 @@ details p { margin: 0; padding: 0 22px 20px; color: var(--muted); }
 .foil-strip::after { content: 'HOVER TO SCRATCH'; }
 @media (hover: none) { .foil-strip::after { content: 'SCRATCH & WIN'; } }
 .final-copy::before { content: ''; position: absolute; inset: -10% -20%; z-index: -1; background: radial-gradient(closest-side, rgba(11, 20, 48, .85), rgba(11, 20, 48, 0)); }
+
+/* ---------- no sideways scrolling on phones ---------- */
+html, body { overflow-x: clip; max-width: 100%; }
+.how { overflow-x: clip; }
+.how-stage::before { width: min(440px, 100vw); height: min(440px, 100vw); }
+.how-dots { display: none; }
+
+/* ---------- phone: pinned story, one step at a time ---------- */
+@media (max-width: 860px) {
+  .how.pinned .how-pin { height: 100vh; height: 100svh; min-height: 0; display: flex; flex-direction: column; gap: 10px; padding: 72px 0 16px; }
+  .how.pinned .how-text { display: contents; }
+  .how.pinned .how-text .eyebrow { order: 1; }
+  .how.pinned .how-text h2 { order: 2; font-size: clamp(22px, 6.4vw, 30px); margin: 0; }
+  .how.pinned .how-dots { order: 3; display: flex; gap: 6px; }
+  .how-dots i { width: 22px; height: 6px; border-radius: 3px; background: var(--line); transition: width .35s, background .35s; cursor: pointer; }
+  .how-dots i.on { width: 40px; background: linear-gradient(90deg, var(--gold-2), var(--gold)); }
+  .how.pinned .how-stage { order: 4; flex: 1; min-height: 0; }
+  .how.pinned .how-stage::before { width: 72vw; height: 72vw; }
+  .how.pinned .phone { height: 100%; max-height: 520px; width: auto; aspect-ratio: 290 / 590; transform: none; border-radius: 38px; padding: 9px; }
+  .how.pinned .screen { border-radius: 30px; }
+  .how.pinned .notch { top: 14px; width: 76px; height: 20px; }
+  .how.pinned .scene { padding: 46px 14px 14px; gap: 8px; }
+  .how.pinned .steps { order: 5; margin: 0; position: relative; min-height: 104px; }
+  .how.pinned .steps li { position: absolute; inset: 0; opacity: 0; transform: translateY(14px); pointer-events: none; transition: opacity .45s, transform .45s; padding: 14px 16px; }
+  .how.pinned .steps li.on { opacity: 1; transform: none; pointer-events: auto; }
+  .how.pinned .steps b { font-size: 17px; }
+  .how.pinned .steps span { font-size: 14px; line-height: 1.4; }
+}
+@media (max-width: 860px) and (max-height: 700px) {
+  .how.pinned .how-text h2 { font-size: 20px; }
+  .how.pinned .steps span { display: none; }
+  .how.pinned .steps { min-height: 66px; }
+}
+@media (max-width: 1000px) { .who-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .who-tile { padding: 16px 12px; gap: 8px; font-size: 14px; } .who-tile span { font-size: 24px; } }
+@media (max-width: 860px) {
+  .how.pinned .how-pin { align-items: stretch; text-align: center; }
+  .how.pinned .how-dots { justify-content: center; }
+  .how.pinned .steps li { text-align: left; }
+}
+@media (max-width: 860px) {
+  .how.pinned .screen { text-align: left; }
+  .how.pinned .win { text-align: center; }
+  .how.pinned .phone { max-height: 470px; }
+  .how.pinned .steps { min-height: 124px; }
+  .how.pinned .steps span { font-size: 13.5px; line-height: 1.45; }
+  body.story .wa-float { opacity: 0; pointer-events: none; transform: scale(.6); }
+  .wa-float { transition: transform .25s, opacity .25s; }
+}
+@media (max-width: 860px) and (max-height: 700px) {
+  .how.pinned .how-text h2 { display: none; }
+  .how.pinned .steps span { display: block; font-size: 13px; }
+  .how.pinned .steps { min-height: 108px; }
+  .how.pinned .steps li { padding: 12px 14px; }
+  .how.pinned .scene { zoom: .8; }
+}

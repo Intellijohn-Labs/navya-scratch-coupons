@@ -296,21 +296,34 @@
     if (i === cur) return; cur = i;
     steps.forEach((s, k) => s.classList.toggle('on', k === i));
     scenes.forEach((s, k) => s.classList.toggle('on', k === i));
+    $$('.how-dots i').forEach((d, k) => d.classList.toggle('on', k === i));
   }
   setStep(0);
-  if (hasGsap && !reduce && !mobile) {
-    const st = ScrollTrigger.create({ trigger: '.how-pin', start: 'top top', end: '+=240%', pin: true, scrub: true,
-      onUpdate: s => setStep(Math.min(3, Math.floor(s.progress * 4))) });
-    steps.forEach((s, i) => s.addEventListener('click', () => {
-      const y = st.start + (st.end - st.start) * ((i + .5) / 4);
-      lenis ? lenis.scrollTo(y, { duration: 1 }) : scrollTo({ top: y, behavior: 'smooth' });
-    }));
-    gsap.to('.phone', { rotate: 3, ease: 'none', scrollTrigger: { trigger: '.how-pin', start: 'top top', end: '+=240%', scrub: true } });
+  // Desktop and phone both pin the section and step through it as you scroll; the phone layout shows one step at a time.
+  if (hasGsap && !reduce) {
+    ScrollTrigger.config({ ignoreMobileResize: true });
+    const how = $('.how');
+    gsap.matchMedia().add({ wide: '(min-width: 861px)', narrow: '(max-width: 860px)' }, ctx => {
+      const { wide } = ctx.conditions;
+      how.classList.add('pinned');
+      const st = ScrollTrigger.create({ trigger: '.how-pin', start: 'top top', end: wide ? '+=240%' : '+=200%', pin: true, scrub: true, anticipatePin: 1,
+        onUpdate: s => setStep(Math.min(3, Math.floor(s.progress * 4))), onToggle: s => document.body.classList.toggle('story', s.isActive && !wide) });
+      const go = i => {
+        const y = st.start + (st.end - st.start) * ((i + .5) / 4);
+        lenis ? lenis.scrollTo(y, { duration: 1 }) : scrollTo({ top: y, behavior: 'smooth' });
+      };
+      const handlers = [...steps, ...$$('.how-dots i')].map(el => {
+        const i = el.dataset.i != null ? +el.dataset.i : steps.indexOf(el);
+        const h = () => go(i); el.addEventListener('click', h); return () => el.removeEventListener('click', h);
+      });
+      if (wide) gsap.to('.phone', { rotate: 3, ease: 'none', scrollTrigger: { trigger: '.how-pin', start: 'top top', end: '+=240%', scrub: true } });
+      return () => { how.classList.remove('pinned'); handlers.forEach(off => off()); };
+    });
   } else {
     let timer = null;
-    const cycle = () => { clearInterval(timer); timer = setInterval(() => setStep((cur + 1) % 4), 2800); };
+    const cycle = () => { clearInterval(timer); if (!reduce) timer = setInterval(() => setStep((cur + 1) % 4), 2800); };
     steps.forEach((s, i) => s.addEventListener('click', () => { setStep(i); cycle(); }));
-    new IntersectionObserver(([e]) => { e.isIntersecting ? cycle() : clearInterval(timer); }, { threshold: .3 }).observe($('.how'));
+    new IntersectionObserver(([en]) => { en.isIntersecting ? cycle() : clearInterval(timer); }, { threshold: .3 }).observe($('.how'));
   }
 
   // ---------------------------------------------------------------- mode cards: tilt on desktop, auto-play on touch
