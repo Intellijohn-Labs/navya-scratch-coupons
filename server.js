@@ -1843,8 +1843,11 @@ app.get('/api/super/activity/verify', a(async (req, res) => res.json(await verif
 // Address-aware pages come first; express.static would otherwise answer /admin and /super on its own.
 const pub = path.join(__dirname, 'public');
 // genuinedraw.in opens the landing page; a merchant's own address opens its admin.
-app.get('/', (req, res) => siteOf(req).kind === 'platform' ? res.sendFile(path.join(pub, 'home.html')) : res.redirect('/admin'));
-app.get('/home', (req, res) => res.sendFile(path.join(pub, 'home.html')));
+// The landing page path is spelled out in full so Vercel's bundler packs the file into every function that can
+// answer "/" (with the Express preset, server.js is also deployed on its own, without the public/ folder).
+const HOME_PAGE = path.join(__dirname, 'public', 'home.html');
+app.get('/', (req, res) => siteOf(req).kind === 'platform' ? res.sendFile(HOME_PAGE) : res.redirect('/admin'));
+app.get('/home', (req, res) => res.sendFile(HOME_PAGE));
 app.get(['/terms', '/privacy'], (req, res) => res.sendFile(path.join(pub, req.path.slice(1) + '.html')));
 app.get(['/admin', '/admin/'], (req, res) => res.sendFile(path.join(pub, siteOf(req).kind === 'platform' ? 'find-shop.html' : 'admin/index.html')));
 // Super Admin "Open as merchant" lands here on the merchant's subdomain.
