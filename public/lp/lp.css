@@ -438,3 +438,16 @@ html, body { overflow-x: clip; max-width: 100%; }
   .who-copy { text-align: center; }
   .who-copy h2, .who-copy .sub { margin-left: auto; margin-right: auto; }
 }
+
+/* ---------- 3D WhatsApp button with an always-on pulse ---------- */
+.wa-float { overflow: visible; }
+.wa-float .wa-3d { position: absolute; inset: -10px; width: calc(100% + 20px); height: calc(100% + 20px); display: none; pointer-events: none; }
+.wa-float.is3d { background: transparent; box-shadow: none; }
+.wa-float.is3d .wa-3d { display: block; }
+.wa-float.is3d > svg { display: none; }
+.wa-ring { position: absolute; inset: 0; border-radius: 50%; border: 2px solid rgba(37, 211, 102, .75); pointer-events: none; animation: waRing 1.6s cubic-bezier(.2, .6, .3, 1) infinite; }
+.wa-ring.r2 { animation-delay: .8s; }
+@keyframes waRing { 0% { transform: scale(.85); opacity: .9; } 100% { transform: scale(1.75); opacity: 0; } }
+.wa-float::after { content: ''; position: absolute; inset: 6px; border-radius: 50%; z-index: -1; background: rgba(37, 211, 102, .55); filter: blur(14px); animation: waGlow 1.6s ease-in-out infinite; }
+@keyframes waGlow { 0%, 100% { opacity: .35; transform: scale(.9); } 50% { opacity: .9; transform: scale(1.15); } }
+@media (prefers-reduced-motion: reduce) { .wa-ring { display: none; } }

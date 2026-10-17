@@ -256,6 +256,71 @@
     } catch (e) { console.warn('3D disabled:', e); document.body.classList.add('no3d'); }
   } else document.body.classList.add('no3d');
 
+  // ---------------------------------------------------------------- 3D WhatsApp button
+  // A glossy green coin with the WhatsApp mark on both faces. It wobbles gently, spins round every few
+  // seconds and "breathes" in time with the CSS pulse rings around it.
+  function waCoin() {
+    const btn = $('.wa-float'), canvas = btn && btn.querySelector('.wa-3d');
+    if (!canvas || !window.THREE || !webglOk()) return;
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+    renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+    renderer.outputEncoding = THREE.sRGBEncoding;
+    renderer.toneMapping = THREE.NoToneMapping;   // keep the WhatsApp green true
+    const scene = new THREE.Scene();
+    scene.environment = envMap(renderer);
+    const camera = new THREE.PerspectiveCamera(30, 1, .1, 20);
+    camera.position.set(0, 0, 5.2);
+    scene.add(new THREE.AmbientLight(0xffffff, .35));
+    const key = new THREE.DirectionalLight(0xffffff, .9); key.position.set(2, 3, 4); scene.add(key);
+    const rim = new THREE.PointLight(0x9dffc4, .8, 10); rim.position.set(-2, -1.5, 2); scene.add(rim);
+    // rounded puck: a lathe profile, then two printed faces
+    const R = 1, T = .2;
+    const profile = [[0, -T], [R - .12, -T], [R - .03, -T + .06], [R, 0], [R - .03, T - .06], [R - .12, T], [0, T]].map(([x, y]) => new THREE.Vector2(x, y));
+    const body = new THREE.Mesh(new THREE.LatheGeometry(profile, 72),
+      new THREE.MeshPhysicalMaterial({ color: 0x139a4a, metalness: .2, roughness: .3, clearcoat: 1, clearcoatRoughness: .12, envMapIntensity: .45 }));
+    body.rotation.x = Math.PI / 2;
+    const face = canvasTex(512, 512, (g, w) => {
+      const gr = g.createRadialGradient(w * .38, w * .32, 20, w / 2, w / 2, w / 2);
+      gr.addColorStop(0, '#5BF08E'); gr.addColorStop(.55, '#25D366'); gr.addColorStop(1, '#128C4A');
+      g.fillStyle = gr; g.beginPath(); g.arc(w / 2, w / 2, w / 2, 0, 7); g.fill();
+      g.save(); g.translate(w / 2, w / 2); g.scale(w / 34, w / 34); g.translate(-12, -12);
+      g.fillStyle = '#fff'; g.shadowColor = 'rgba(0,60,20,.35)'; g.shadowBlur = .6; g.shadowOffsetY = .3;
+      g.fill(new Path2D('M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2Zm0 1.7a8.3 8.3 0 1 1-4.2 15.5l-.3-.2-3 .8.8-2.9-.2-.3A8.3 8.3 0 0 1 12 3.7Z'));
+      g.fill(new Path2D('M17.3 16.1c-.2.6-1.3 1.2-1.8 1.2-.5.1-1 .2-3.4-.7-2.8-1.1-4.6-4-4.8-4.2-.1-.2-1.1-1.5-1.1-2.9s.7-2.1 1-2.4c.3-.3.6-.3.8-.3h.6c.2 0 .4 0 .6.5l.8 2c.1.2.1.4 0 .5l-.3.5-.4.4c-.1.1-.3.3-.1.6.2.3.8 1.3 1.7 2.1 1.2 1 2.1 1.4 2.4 1.5.3.1.5.1.6-.1l.9-1c.2-.3.4-.2.6-.1l1.9.9c.3.1.5.2.5.3.1.2.1.7-.1 1.2Z'));
+      g.restore();
+      const sh = g.createLinearGradient(0, 0, w, w); sh.addColorStop(.35, 'rgba(255,255,255,0)'); sh.addColorStop(.5, 'rgba(255,255,255,.22)'); sh.addColorStop(.62, 'rgba(255,255,255,0)');
+      g.globalCompositeOperation = 'source-atop'; g.fillStyle = sh; g.fillRect(0, 0, w, w);
+    });
+    const faceMat = new THREE.MeshBasicMaterial({ map: face, toneMapped: false });   // printed face: always the true colours
+    const gloss = new THREE.Mesh(new THREE.CircleGeometry(R - .1, 72), new THREE.MeshPhysicalMaterial({ color: 0xffffff, transparent: true, opacity: .12, roughness: .1, clearcoat: 1, envMapIntensity: 1.2 }));
+    gloss.position.z = T + .006;
+    const front = new THREE.Mesh(new THREE.CircleGeometry(R - .1, 72), faceMat); front.position.z = T + .002;
+    const back = new THREE.Mesh(new THREE.CircleGeometry(R - .1, 72), faceMat); back.position.z = -T - .002; back.rotation.y = Math.PI;
+    const coin = new THREE.Group(); coin.add(body, front, back, gloss); scene.add(coin);
+    const size = () => { const s = canvas.clientWidth || 72; renderer.setSize(s, s, false); };
+    size(); addEventListener('resize', size);
+    btn.classList.add('is3d');
+    let hover = 0, hoverT = 0;
+    btn.addEventListener('pointerenter', () => { hover = 1; }); btn.addEventListener('pointerleave', () => { hover = 0; });
+    const clock = new THREE.Clock();
+    const frame = () => {
+      const t = clock.getElapsedTime();
+      hoverT += (hover - hoverT) * .08;
+      const cycle = t % 5, spin = cycle > 4 ? (1 - Math.cos((cycle - 4) * Math.PI)) / 2 * Math.PI * 2 : 0;   // a full turn every 5 s
+      coin.rotation.y = Math.sin(t * 1.4) * .35 + spin + hoverT * Math.sin(t * 6) * .25;
+      coin.rotation.x = Math.sin(t * 1.1) * .18;
+      const beat = Math.pow(Math.max(0, Math.sin(t * Math.PI / .8)), 6);   // the pulse, every 1.6 s with the CSS rings
+      coin.scale.setScalar(1 + beat * .07 + hoverT * .08);
+      faceMat.color.setScalar(1 + beat * .25);   // brighten on each pulse
+      renderer.render(scene, camera);
+    };
+    if (reduce) { frame(); return; }
+    renderer.setAnimationLoop(frame);
+    // Don't spend battery when the tab is in the background.
+    document.addEventListener('visibilitychange', () => renderer.setAnimationLoop(document.hidden ? null : frame));
+  }
+  try { waCoin(); } catch (e) { console.warn('3D WhatsApp button disabled:', e); }
+
   // ---------------------------------------------------------------- GSAP reveals
   if (hasGsap && !reduce) {
     gsap.registerPlugin(ScrollTrigger);
