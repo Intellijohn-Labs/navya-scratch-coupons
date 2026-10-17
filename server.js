@@ -2049,6 +2049,8 @@ app.get('/api/super/activity/verify', a(async (req, res) => res.json(await verif
 
 // ---------------------------------------------------------------- pages
 // Address-aware pages come first; express.static would otherwise answer /admin and /super on its own.
+// Their files are named app.html, not index.html: Vercel serves a folder's index.html straight from the CDN
+// before the app runs, which skipped the address checks below (and the .in forwarding) on production.
 const pub = path.join(__dirname, 'public');
 // genuinedraw.com opens the landing page; a merchant's own address opens its admin.
 // The landing page path is spelled out in full so Vercel's bundler packs the file into every function that can
@@ -2057,7 +2059,7 @@ const HOME_PAGE = path.join(__dirname, 'public', 'home.html');
 app.get('/', (req, res) => siteOf(req).kind === 'platform' ? res.sendFile(HOME_PAGE) : res.redirect('/admin'));
 app.get('/home', (req, res) => res.sendFile(HOME_PAGE));
 app.get(['/terms', '/privacy'], (req, res) => res.sendFile(path.join(pub, req.path.slice(1) + '.html')));
-app.get(['/admin', '/admin/'], (req, res) => res.sendFile(path.join(pub, siteOf(req).kind === 'platform' ? 'find-shop.html' : 'admin/index.html')));
+app.get(['/admin', '/admin/'], (req, res) => res.sendFile(path.join(pub, siteOf(req).kind === 'platform' ? 'find-shop.html' : 'admin/app.html')));
 // Super Admin "Open as merchant" lands here on the merchant's subdomain.
 app.get('/admin/enter', a(async (req, res) => {
   const p = await readToken(req.query.token);
@@ -2075,7 +2077,7 @@ app.get('/admin/print/:id', (req, res) => res.sendFile(path.join(pub, 'admin', '
 app.get(['/super', '/super/'], (req, res) => {
   const k = siteOf(req).kind;
   if (k === 'merchant' || k === 'unknown') return res.redirect(`https://${BASE}/super`);
-  res.sendFile(path.join(pub, 'super', 'index.html'));
+  res.sendFile(path.join(pub, 'super', 'app.html'));
 });
 app.get('/c/:code([A-Za-z0-9-]+)', (req, res) => res.sendFile(path.join(pub, 'c', 'index.html')));
 const platformPage = file => (req, res) => {
