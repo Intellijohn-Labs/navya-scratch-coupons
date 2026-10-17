@@ -714,7 +714,7 @@ const daysAhead = n => new Date(Date.now() + n * 86400000).toISOString().slice(0
 // Demo (sample) coupons never message anyone: their phone numbers are made up.
 const tellWinner = async (c, prize, shop) => {
   if ((await one('SELECT sample FROM batches WHERE id = $1', [c.batch_id]))?.sample) return false;
-  return sendTemplate(c.phone, 'gd_draw_winner', [String(c.customer_name || '').split(' ')[0] || 'there', c.code.slice(0, 4) + '-' + c.code.slice(4), prize, shop]);
+  return sendTemplate(c.phone, 'gd_draw_win', [String(c.customer_name || '').split(' ')[0] || 'there', c.code.slice(0, 4) + '-' + c.code.slice(4), prize, shop]);
 };
 
 // Finish a sealed draw once its drand round is out. Safe to call from any request: the row lock makes it run once.
