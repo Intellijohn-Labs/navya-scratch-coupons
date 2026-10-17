@@ -13,6 +13,13 @@ const PLATFORM = 'Genuine Draw';
 const PORT = Number(process.env.PORT) || 3000;
 const app = express();
 app.set('trust proxy', true);
+app.use((req, res, next) => {
+  const host = String(req.hostname || '').toLowerCase();
+  const old = OLD_BASES.find(d => host === d || host.endsWith('.' + d));
+  if (!old) return next();
+  const sub = host === old || host === 'www.' + old ? '' : host.slice(0, -old.length);
+  res.redirect(308, `https://${sub}${BASE}${req.originalUrl}`);
+});
 app.use(express.json({ limit: '6mb' }));
 
 // Express 4 doesn't catch rejected promises — route them to the error handler.
@@ -34,9 +41,12 @@ function lanIp() {
 }
 
 // ---------- addresses ----------
-// genuinedraw.in → Super Admin; <merchant>.genuinedraw.in → that merchant's admin and customer pages.
-// Any other host (the old vercel.app address, localhost) keeps working as before, with every page available.
-const BASE = (process.env.PLATFORM_DOMAIN || 'genuinedraw.in').toLowerCase();
+// genuinedraw.com → landing page, Super Admin and public pages; <merchant>.genuinedraw.com → that merchant's admin
+// and customer pages. Any other host (the vercel.app address, localhost) keeps working as before, with every page available.
+const BASE = (process.env.PLATFORM_DOMAIN || 'genuinedraw.com').toLowerCase();
+// Earlier main domains. Every address on them (including the QR codes already printed on coupons) is forwarded
+// permanently to the same subdomain and path on the main domain.
+const OLD_BASES = ['genuinedraw.in'].filter(d => d !== BASE);
 const RESERVED = new Set(['www', 'admin', 'api', 'app', 'mail', 'email', 'super', 'static', 'assets', 'cdn', 'help', 'support',
   'blog', 'docs', 'status', 'dev', 'test', 'staging', 'demo', 'm', 'ns1', 'ns2', 'smtp', 'ftp', 'verify', 'winners', 'draw', 'secure']);
 function siteOf(req) {
@@ -1842,7 +1852,7 @@ app.get('/api/super/activity/verify', a(async (req, res) => res.json(await verif
 // ---------------------------------------------------------------- pages
 // Address-aware pages come first; express.static would otherwise answer /admin and /super on its own.
 const pub = path.join(__dirname, 'public');
-// genuinedraw.in opens the landing page; a merchant's own address opens its admin.
+// genuinedraw.com opens the landing page; a merchant's own address opens its admin.
 // The landing page path is spelled out in full so Vercel's bundler packs the file into every function that can
 // answer "/" (with the Express preset, server.js is also deployed on its own, without the public/ folder).
 const HOME_PAGE = path.join(__dirname, 'public', 'home.html');

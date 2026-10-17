@@ -4,4 +4,4 @@ Disallow: /admin
 Disallow: /super
 Disallow: /api/
 Disallow: /my
-Sitemap: https://genuinedraw.in/sitemap.xml
+Sitemap: https://genuinedraw.com/sitemap.xml

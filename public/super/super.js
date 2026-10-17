@@ -116,7 +116,7 @@
       <div class="bk-logo" style="background:#2A3F6E">${esc(initials(t.name))}</div>
       <div>
         <h4>${esc(t.name)} ${t.status === 'pending' ? '<span class="pill expired">Waiting</span>' : t.status === 'rejected' ? '<span class="pill suspended">Not approved</span>' : '<span class="pill active">Approved</span>'}</h4>
-        <div class="sub">Username <b>${esc(t.slug)}</b> · ${esc(t.slug)}.genuinedraw.in · signed up ${ago(t.created_at)}</div>
+        <div class="sub">Username <b>${esc(t.slug)}</b> · ${esc(t.slug)}.genuinedraw.com · signed up ${ago(t.created_at)}</div>
         <div class="sub">${esc(t.owner_name)} · ${esc(t.contact_phone)}${t.email ? ' · ' + esc(t.email) : ''}</div>
         <div class="sub">${esc([t.business_type, t.address, t.gst_number ? 'GST ' + t.gst_number : ''].filter(Boolean).join(' · ') || '—')}</div>
         ${t.reject_reason ? `<div class="sub" style="color:var(--red)">Reason: ${esc(t.reject_reason)}</div>` : ''}
@@ -125,7 +125,7 @@
       <div class="bk-actions">${actions}</div>
     </div>`;
     view.innerHTML = `
-      <div class="page-head"><div><h1>Approvals</h1><p>Businesses that signed up at <b>genuinedraw.in/register</b>. They can't sign in until you approve them.</p></div>
+      <div class="page-head"><div><h1>Approvals</h1><p>Businesses that signed up at <b>genuinedraw.com/register</b>. They can't sign in until you approve them.</p></div>
         <a class="btn" href="/register" target="_blank" rel="noopener">Open sign-up page ↗</a></div>
       <h3 class="section-title">Waiting (${pending.length})</h3>
       <div class="bk-list">${pending.map(t => row(t, `<button class="btn sm primary" data-ok="${t.id}">Approve</button><button class="btn sm danger" data-no="${t.id}">Reject</button>`)).join('')
@@ -462,6 +462,6 @@
   }
 
   // ---------------------------------------------------------------- boot
-  if (location.hostname.endsWith('.genuinedraw.in')) { location.replace('https://genuinedraw.in/super'); return; }
+  if (location.hostname.endsWith('.genuinedraw.com')) { location.replace('https://genuinedraw.com/super'); return; }
   fetch('/api/super/me').then(r => r.json()).then(d => d.super ? showShell() : showLogin()).catch(showLogin);
 })();

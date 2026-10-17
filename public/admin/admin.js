@@ -1296,6 +1296,6 @@
   }
 
   // ---------------------------------------------------------------- boot
-  if (location.hostname === 'genuinedraw.in') location.replace('/find-shop'); // merchants sign in on their own subdomain
+  if (location.hostname === 'genuinedraw.com') location.replace('/find-shop'); // merchants sign in on their own subdomain
   else showShell();
 })();

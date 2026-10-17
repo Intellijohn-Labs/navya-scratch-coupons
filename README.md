@@ -4,7 +4,7 @@ A multi-merchant platform (formerly "Scratch & Win"). Each bakery prints its own
 
 The **platform owner** (Super Admin) adds bakeries, sets their passwords and controls their plans. Every bakery sees only its own gifts, coupons and customers, and its customers see the bakery's own logo, colours and details.
 
-Live: https://genuinedraw.in (Super Admin, sign-up, verify, customer portal) and https://<merchant>.genuinedraw.in (each merchant's admin and coupons). Navya Bakers was the first merchant.
+Live: https://genuinedraw.com (Super Admin, sign-up, verify, customer portal) and https://<merchant>.genuinedraw.com (each merchant's admin and coupons). Navya Bakers was the first merchant.
 
 ## Who uses what
 
