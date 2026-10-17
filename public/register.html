@@ -13,10 +13,29 @@
 <link rel="stylesheet" href="/admin/admin.css">
 <link rel="stylesheet" href="/portal.css">
 <style>
-  .docs { display: grid; gap: 8px; margin-top: 8px; }
-  .doc-row { display: grid; grid-template-columns: 170px 1fr; gap: 10px; align-items: center; padding: 10px 12px; border: 1.5px dashed #D6DCEA; border-radius: 12px; background: #FAFBFE; font-weight: 700; font-size: 14px; }
-  .doc-row input { font-size: 13px; min-width: 0; }
-  @media (max-width: 560px) { .doc-row { grid-template-columns: 1fr; } }
+  .docs { display: grid; gap: 10px; margin-top: 10px; }
+  .doc-pick { position: relative; display: flex; align-items: center; gap: 14px; padding: 14px 16px; border-radius: 16px; cursor: pointer;
+    border: 1.5px dashed #CBD3E6; background: linear-gradient(180deg, #FBFCFF, #F5F7FC); transition: border-color .2s, background .2s, box-shadow .2s, transform .15s; }
+  .doc-pick:hover { border-color: #2A3F6E; background: #F2F5FC; }
+  .doc-pick.drag { border-color: #E0A33A; background: #FFF8E8; transform: scale(1.01); box-shadow: 0 10px 24px -16px rgba(224, 163, 58, .8); }
+  .doc-pick input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+  .doc-pick:focus-within { outline: 3px solid rgba(42, 63, 110, .25); outline-offset: 2px; }
+  .dp-ico { flex: none; width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; background: #E8ECF6; color: #2A3F6E; transition: background .2s, color .2s; }
+  .dp-ico svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .dp-text { flex: 1; min-width: 0; display: grid; gap: 2px; }
+  .dp-text b { font-size: 15px; color: #14213D; }
+  .dp-text small { color: #66708A; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dp-btn { flex: none; display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 14px; border-radius: 10px; font-weight: 800; font-size: 13.5px;
+    color: #fff; background: linear-gradient(135deg, #2A3F6E, #14213D); box-shadow: 0 8px 16px -10px rgba(20, 33, 61, .8); }
+  .dp-clear { display: none; flex: none; width: 32px; height: 32px; border-radius: 50%; border: 0; background: #FDEEEE; color: #C93838; font-size: 15px; cursor: pointer; }
+  .doc-pick.has-file { border-style: solid; border-color: #34C38F; background: #F1FBF6; }
+  .doc-pick.has-file .dp-ico { background: #D8F5E7; color: #1E9E5A; }
+  .doc-pick.has-file .dp-text small { color: #1E7F4A; font-weight: 700; }
+  .doc-pick.has-file .dp-btn { background: #fff; color: #14213D; box-shadow: none; border: 1.5px solid #D6DCEA; }
+  .doc-pick.has-file .dp-clear { display: grid; place-items: center; }
+  .doc-pick.bad { border-color: #C93838; background: #FDF3F3; }
+  .doc-pick.bad .dp-text small { color: #C93838; font-weight: 700; }
+  @media (max-width: 480px) { .doc-pick { padding: 12px; gap: 10px; } .dp-btn span { display: none; } .dp-btn { padding: 0 11px; } }
 </style>
 </head>
 <body class="portal">
@@ -61,9 +80,27 @@
       <h2 style="margin-top:24px">Business documents <span class="hint" style="font-weight:500">(optional, helps us approve you faster)</span></h2>
       <p class="hint">PDF, JPG or PNG, up to 3 MB each. Only the Genuine Draw team sees these.</p>
       <div class="docs">
-        <label class="doc-row"><span>GST certificate</span><input type="file" data-kind="gst" accept="application/pdf,image/jpeg,image/png,image/webp"></label>
-        <label class="doc-row"><span>Shop / trade licence</span><input type="file" data-kind="licence" accept="application/pdf,image/jpeg,image/png,image/webp"></label>
-        <label class="doc-row"><span>Owner ID proof</span><input type="file" data-kind="id_proof" accept="application/pdf,image/jpeg,image/png,image/webp"></label>
+        <label class="doc-pick" data-title="GST certificate">
+          <input type="file" data-kind="gst" accept="application/pdf,image/jpeg,image/png,image/webp">
+          <span class="dp-ico"><svg viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h4"/></svg></span>
+          <span class="dp-text"><b>GST certificate</b><small>PDF, JPG or PNG · up to 3 MB</small></span>
+          <button type="button" class="dp-clear" aria-label="Remove file">✕</button>
+          <span class="dp-btn"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M6 10l6-6 6 6M5 20h14"/></svg><span>Choose file</span></span>
+        </label>
+        <label class="doc-pick" data-title="Shop / trade licence">
+          <input type="file" data-kind="licence" accept="application/pdf,image/jpeg,image/png,image/webp">
+          <span class="dp-ico"><svg viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h4"/></svg></span>
+          <span class="dp-text"><b>Shop / trade licence</b><small>PDF, JPG or PNG · up to 3 MB</small></span>
+          <button type="button" class="dp-clear" aria-label="Remove file">✕</button>
+          <span class="dp-btn"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M6 10l6-6 6 6M5 20h14"/></svg><span>Choose file</span></span>
+        </label>
+        <label class="doc-pick" data-title="Owner ID proof">
+          <input type="file" data-kind="id_proof" accept="application/pdf,image/jpeg,image/png,image/webp">
+          <span class="dp-ico"><svg viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h4"/></svg></span>
+          <span class="dp-text"><b>Owner ID proof</b><small>PDF, JPG or PNG · up to 3 MB</small></span>
+          <button type="button" class="dp-clear" aria-label="Remove file">✕</button>
+          <span class="dp-btn"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M6 10l6-6 6 6M5 20h14"/></svg><span>Choose file</span></span>
+        </label>
       </div>
       <label class="check-row"><input type="checkbox" name="agree"><span>I confirm these details are correct and agree to run campaigns honestly. Genuine Draw may verify my business before approval.</span></label>
       <p class="p-err" id="err"></p>
@@ -98,6 +135,26 @@
   };
   f.name.addEventListener('input', () => { if (!touched) { f.username.value = slugify(f.name.value); check(); } });
   f.username.addEventListener('input', () => { touched = true; f.username.value = f.username.value.toLowerCase().replace(/[^a-z0-9-]/g, ''); check(); });
+  // Document pickers: show the chosen file, allow drag and drop, and a quick remove.
+  const fmtSize = b => b < 1048576 ? Math.max(1, Math.round(b / 1024)) + ' KB' : (b / 1048576).toFixed(1) + ' MB';
+  document.querySelectorAll('.doc-pick').forEach(card => {
+    const input = card.querySelector('input'), small = card.querySelector('small'), btn = card.querySelector('.dp-btn span');
+    const show = () => {
+      const f = input.files[0];
+      card.classList.toggle('has-file', !!f);
+      card.classList.toggle('bad', !!f && f.size > 3 * 1024 * 1024);
+      small.textContent = !f ? 'PDF, JPG or PNG · up to 3 MB' : f.size > 3 * 1024 * 1024 ? `${f.name} is ${fmtSize(f.size)}, please choose one under 3 MB` : `✓ ${f.name} · ${fmtSize(f.size)}`;
+      btn.textContent = f ? 'Change' : 'Choose file';
+    };
+    input.addEventListener('change', show);
+    card.querySelector('.dp-clear').addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); input.value = ''; show(); });
+    ['dragenter', 'dragover'].forEach(t => card.addEventListener(t, e => { e.preventDefault(); card.classList.add('drag'); }));
+    ['dragleave', 'drop'].forEach(t => card.addEventListener(t, e => { e.preventDefault(); card.classList.remove('drag'); }));
+    card.addEventListener('drop', e => {
+      const f = e.dataTransfer.files[0]; if (!f) return;
+      const dt = new DataTransfer(); dt.items.add(f); input.files = dt.files; show();
+    });
+  });
   f.addEventListener('submit', async e => {
     e.preventDefault();
     err.textContent = '';
