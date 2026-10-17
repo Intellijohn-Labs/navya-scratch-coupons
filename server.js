@@ -399,7 +399,7 @@ app.post('/api/register', a(async (req, res) => {
     sendTemplate(phone, 'gd_registration_received', [owner.split(' ')[0], fields.name, `${fields.slug}.${BASE}`]),
     sendTemplate(superPhone(), 'gd_new_signup_alert', [fields.name, fields.slug, owner, phone]),
   ]);
-  res.json({ ok: true, username: fields.slug, admin_url: adminUrl(req, fields) });
+  res.json({ ok: true, username: fields.slug, admin_url: adminUrl(req, fields), upload_token: await makeToken({ docs: id, exp: Date.now() + 3600000 }) });
 }));
 app.get('/api/register/check', a(async (req, res) => {
   const u = String(req.query.username || '').trim().toLowerCase();
@@ -834,6 +834,146 @@ app.get('/api/winners', a(async (req, res) => {
     FROM draws d JOIN campaigns cp ON cp.id = d.campaign_id JOIN tenants t ON t.id = d.tenant_id
     WHERE d.status = 'drawn' AND t.status = 'active' ORDER BY d.drawn_at DESC LIMIT 60`));
 }));
+
+// ---------------------------------------------------------------- Phase 4: business documents
+const DOC_KINDS = { gst: 'GST certificate', licence: 'Shop / trade licence', id_proof: 'Owner ID proof', other: 'Other document' };
+const DOC_TYPES = { 'application/pdf': 'pdf', 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
+const DOC_MAX = 3 * 1024 * 1024;   // 3 MB per file (the upload travels as base64 inside a 4.5 MB request)
+// Accepts { kind, filename, data: "data:<mime>;base64,..." } and returns a clean file, or throws a friendly error.
+function docFrom(body) {
+  const kind = DOC_KINDS[body.kind] ? body.kind : null;
+  if (!kind) throw fail(400, 'Choose what kind of document this is');
+  const m = /^data:([a-z/+.-]+);base64,(.+)$/i.exec(String(body.data || ''));
+  if (!m || !DOC_TYPES[m[1].toLowerCase()]) throw fail(400, 'Documents must be a PDF, JPG, PNG or WebP file');
+  const buf = Buffer.from(m[2], 'base64');
+  if (!buf.length) throw fail(400, 'The file is empty');
+  if (buf.length > DOC_MAX) throw fail(400, 'Each document must be under 3 MB. Try a smaller scan or photo.');
+  const mime = m[1].toLowerCase();
+  // Check the file really is what it says (first bytes), so nothing else can be stored as a "PDF".
+  const head = buf.subarray(0, 12).toString('latin1');
+  const okSig = mime === 'application/pdf' ? head.startsWith('%PDF') : mime === 'image/png' ? head.startsWith('\x89PNG')
+    : mime === 'image/jpeg' ? buf[0] === 0xFF && buf[1] === 0xD8 : head.startsWith('RIFF') && head.slice(8, 12) === 'WEBP';
+  if (!okSig) throw fail(400, 'That file does not look like a real PDF or image');
+  const safe = String(body.filename || 'document').replace(/[^\w.\- ]+/g, '_').slice(0, 80) || 'document';
+  return { kind, mime, buf, filename: /\.\w{2,4}$/.test(safe) ? safe : `${safe}.${DOC_TYPES[mime]}` };
+}
+async function saveDocument(tenantId, file, by, client) {
+  let url = null, data = file.buf;
+  if (BLOB_ON) {
+    try {
+      const { put } = require('@vercel/blob');
+      const path = `documents/${tenantId}/${crypto.randomBytes(8).toString('hex')}-${file.filename}`;
+      await put(path, file.buf, { access: 'private', contentType: file.mime, addRandomSuffix: false });
+      url = 'private:' + path; data = null;
+    } catch (e) { console.error('Blob upload failed, keeping the document in the database:', e.message); }
+  }
+  return one(`INSERT INTO merchant_documents(tenant_id, kind, filename, mime, size, url, data, uploaded_by)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id, kind, filename, mime, size, status, created_at`,
+  [tenantId, file.kind, file.filename, file.mime, file.buf.length, url, data, by], client);
+}
+async function sendDocument(res, doc) {
+  let buf = doc.data;
+  if (!buf && doc.url) {
+    const r = await require('@vercel/blob').get(doc.url.slice(8), { access: 'private' });
+    if (!r) throw fail(404, 'File not found');
+    buf = Buffer.from(await new Response(r.stream).arrayBuffer());
+  }
+  res.set('Content-Type', doc.mime).set('Content-Disposition', `inline; filename="${doc.filename.replace(/"/g, '')}"`)
+    .set('Cache-Control', 'private, no-store').set('X-Content-Type-Options', 'nosniff').send(buf);
+}
+const docList = tenantId => q(`SELECT id, kind, filename, mime, size, status, note, uploaded_by, created_at, reviewed_at
+  FROM merchant_documents WHERE tenant_id = $1 ORDER BY id`, [tenantId]);
+
+// Documents sent right after signing up (the sign-up response carries a one-hour upload token).
+app.post('/api/register/documents', a(async (req, res) => {
+  const p = await readToken(req.body.token);
+  if (!p || !p.docs) throw fail(401, 'This upload link has expired. Sign in to your shop later and add documents from Settings.');
+  if (throttle('docs:' + req.ip, 20, 60 * 60000)) throw fail(429, 'Too many uploads. Please try again later.');
+  const { n } = await one('SELECT COUNT(*) AS n FROM merchant_documents WHERE tenant_id = $1', [p.docs]);
+  if (n >= 6) throw fail(409, 'You can send up to 6 documents now. More can be added later from Settings.');
+  const file = docFrom(req.body);
+  const owner = await one('SELECT owner_name FROM tenants WHERE id = $1', [p.docs]);
+  const doc = await tx(async t => {
+    const d = await saveDocument(p.docs, file, owner?.owner_name || 'Owner', t);
+    await audit({ tenantId: p.docs, actor: { type: 'owner', name: owner?.owner_name || '' }, action: 'document.uploaded', entity: 'document', entityId: d.id,
+      details: { kind: DOC_KINDS[file.kind], filename: file.filename, size: file.buf.length }, ip: req.ip }, t);
+    return d;
+  });
+  res.json(doc);
+}));
+
+// ---------------------------------------------------------------- Phase 4: audit report
+// One document with everything that happened in an account (or one campaign) over a period. Its fingerprint is
+// written to the tamper-evident log, so a printed copy can later be checked against the log.
+async function auditReport(tenantId, query) {
+  const from = /^\d{4}-\d{2}-\d{2}$/.test(query.from || '') ? query.from : '2000-01-01';
+  const to = /^\d{4}-\d{2}-\d{2}$/.test(query.to || '') ? query.to : today();
+  const toEx = new Date(Date.parse(to) + 86400000).toISOString().slice(0, 10);
+  const camp = query.campaign_id ? int(query.campaign_id) : null;
+  const P = [tenantId, from, toEx, camp];
+  const inR = col => `${col} >= $2 AND ${col} < $3`;
+  const base = `FROM coupons c JOIN batches b ON b.id = c.batch_id WHERE c.tenant_id = $1 AND b.sample = 0 AND ($4::int IS NULL OR b.campaign_id = $4)`;
+  const [tenant, campaign, summary, campaigns, handovers, complaints, outlets, staff, activity, activityCount, chain] = await Promise.all([
+    one(`SELECT id, slug, name, status, owner_name, contact_phone, email, gst_number, business_type, address, created_at, plan_expires_on FROM tenants WHERE id = $1`, [tenantId]),
+    camp ? one('SELECT id, name, type, starts_on, ends_on, draw_on, status FROM campaigns WHERE id = $1 AND tenant_id = $2', [camp, tenantId]) : null,
+    one(`SELECT COUNT(*) FILTER (WHERE ${inR('b.created_at')}) AS printed,
+        COUNT(*) FILTER (WHERE ${inR('b.created_at')} AND c.status = 'void') AS voided,
+        COUNT(*) FILTER (WHERE ${inR('c.claimed_at')}) AS played,
+        COUNT(*) FILTER (WHERE ${inR('c.claimed_at')} AND c.draw_entry = 1) AS draw_entries,
+        COUNT(*) FILTER (WHERE ${inR('c.claimed_at')} AND c.gift_kind = 'prize') AS prizes_won,
+        COUNT(*) FILTER (WHERE c.status = 'redeemed' AND ${inR('c.redeemed_at')}) AS handed_over,
+        COUNT(DISTINCT c.phone) FILTER (WHERE ${inR('c.claimed_at')}) AS customers ${base}`, P),
+    q(`SELECT cp.id, cp.name, cp.type, cp.status, cp.starts_on, cp.ends_on, cp.draw_on,
+        COUNT(c.id) FILTER (WHERE ${inR('b.created_at')}) AS printed, COUNT(c.id) FILTER (WHERE ${inR('c.claimed_at')}) AS played,
+        COUNT(c.id) FILTER (WHERE ${inR('c.claimed_at')} AND c.gift_kind = 'prize') AS prizes_won,
+        COUNT(c.id) FILTER (WHERE c.status = 'redeemed' AND ${inR('c.redeemed_at')}) AS handed_over
+      FROM campaigns cp LEFT JOIN batches b ON b.campaign_id = cp.id AND b.sample = 0 LEFT JOIN coupons c ON c.batch_id = b.id
+      WHERE cp.tenant_id = $1 AND ($4::int IS NULL OR cp.id = $4)
+        AND EXISTS (SELECT 1 FROM batches b2 WHERE b2.campaign_id = cp.id AND b2.sample = 0)
+      GROUP BY cp.id ORDER BY cp.id`, P),
+    q(`SELECT c.redeemed_at, c.code, c.gift_name, c.reward_code, c.customer_name, c.phone, o.name AS outlet, c.redeemed_by, cp.name AS campaign
+      ${base.replace('JOIN batches b ON b.id = c.batch_id', 'JOIN batches b ON b.id = c.batch_id LEFT JOIN campaigns cp ON cp.id = b.campaign_id LEFT JOIN outlets o ON o.id = c.redeemed_outlet_id')}
+      AND c.status = 'redeemed' AND ${inR('c.redeemed_at')} ORDER BY c.redeemed_at LIMIT 3000`, P),
+    q(`SELECT k.ticket_no, k.category, k.status, k.escalated, k.created_at, k.resolved_at, k.customer_name, k.coupon_code
+      FROM complaints k LEFT JOIN coupons cc ON cc.id = k.coupon_id LEFT JOIN batches b ON b.id = cc.batch_id
+      WHERE k.tenant_id = $1 AND ${inR('k.created_at')} AND ($4::int IS NULL OR b.campaign_id = $4) ORDER BY k.created_at`, P),
+    q('SELECT name, address, active FROM outlets WHERE tenant_id = $1 ORDER BY id', [tenantId]),
+    q('SELECT name, username, role, active, last_login_at FROM staff WHERE tenant_id = $1 ORDER BY id', [tenantId]),
+    q(`SELECT id, created_at, actor_type, actor_name, action, entity, entity_id, hash FROM audit_log
+      WHERE tenant_id = $1 AND ${inR('created_at')} ORDER BY id DESC LIMIT 500`, [tenantId, from, toEx]),
+    one(`SELECT COUNT(*) AS n FROM audit_log WHERE tenant_id = $1 AND ${inR('created_at')}`, [tenantId, from, toEx]),
+    verifyAudit(),
+  ]);
+  if (camp && !campaign) throw fail(404, 'Campaign not found');
+  const draws = await q(`SELECT d.id, d.status, d.entries_count, d.entries_hash, d.beacon_round, d.beacon_randomness, d.seed, d.sealed_at, d.drawn_at, cp.name AS campaign
+    FROM draws d JOIN campaigns cp ON cp.id = d.campaign_id
+    WHERE d.tenant_id = $1 AND ${inR('d.sealed_at')} AND ($4::int IS NULL OR d.campaign_id = $4)
+      AND EXISTS (SELECT 1 FROM batches b WHERE b.campaign_id = cp.id AND b.sample = 0) ORDER BY d.sealed_at`, P);
+  for (const d of draws) {
+    d.winners = await q(`SELECT w.pick_no, w.backup, w.prize_name, w.coupon_code, w.status, c.customer_name, c.phone, c.status AS coupon_status, c.redeemed_at
+      FROM draw_winners w LEFT JOIN coupons c ON c.id = w.coupon_id WHERE w.draw_id = $1 ORDER BY w.pick_no`, [d.id]);
+  }
+  const hours = complaints.filter(k => k.resolved_at).map(k => (Date.parse(k.resolved_at + 'Z') - Date.parse(k.created_at + 'Z')) / 3600000);
+  const report = {
+    tenant, campaign, period: { from, to },
+    summary,
+    campaigns, draws, handovers,
+    complaints: { list: complaints, total: complaints.length, open: complaints.filter(k => ['open', 'in_progress'].includes(k.status)).length,
+      resolved: complaints.filter(k => k.status === 'resolved').length, escalated: complaints.filter(k => k.escalated).length,
+      avg_resolution_hours: hours.length ? Math.round(hours.reduce((s, h) => s + h, 0) / hours.length * 10) / 10 : null },
+    outlets, staff,
+    activity: { entries: activity, total: activityCount.n, shown: activity.length },
+    log_check: chain,
+  };
+  const fingerprint = engine.sha256(JSON.stringify(report));
+  return { report, fingerprint, report_no: 'AR-' + fingerprint.slice(0, 10).toUpperCase(), generated_at: utcNow() };
+}
+async function sendAuditReport(req, res, tenantId, actor) {
+  const r = await auditReport(tenantId, req.query);
+  await audit({ tenantId, actor, action: 'report.audit_generated', entity: 'report', entityId: r.report_no,
+    details: { fingerprint: r.fingerprint, from: r.report.period.from, to: r.report.period.to, campaign: r.report.campaign?.name || 'All campaigns' }, ip: req.ip });
+  res.set('Cache-Control', 'no-store').json({ ...r, generated_by: actor.name });
+}
 
 // ---------------------------------------------------------------- merchant admin API
 // A session is the merchant owner, one of its staff (manager / counter), or the Super Admin looking in.
@@ -1533,6 +1673,38 @@ app.post('/api/admin/draw-winners/:id/forfeit', a(async (req, res) => {
   res.json({ ok: true, promoted: out.promoted });
 }));
 
+// Business documents (owner, or the Super Admin looking in)
+app.get('/api/admin/documents', a(async (req, res) => res.json({ kinds: DOC_KINDS, documents: await docList(T(req)) })));
+app.post('/api/admin/documents', a(async (req, res) => {
+  ownerOnly(req);
+  const { n } = await one('SELECT COUNT(*) AS n FROM merchant_documents WHERE tenant_id = $1', [T(req)]);
+  if (n >= 20) throw fail(409, 'You have 20 documents already. Remove an old one first.');
+  const file = docFrom(req.body);
+  const doc = await tx(async t => {
+    const d = await saveDocument(T(req), file, req.actor.name, t);
+    await log(req, 'document.uploaded', 'document', d.id, { kind: DOC_KINDS[file.kind], filename: file.filename, size: file.buf.length }, t);
+    return d;
+  });
+  res.json(doc);
+}));
+app.get('/api/admin/documents/:id/file', a(async (req, res) => {
+  const d = await one('SELECT * FROM merchant_documents WHERE id = $1 AND tenant_id = $2', [int(req.params.id), T(req)]);
+  if (!d) throw fail(404, 'Document not found');
+  await sendDocument(res, d);
+}));
+app.delete('/api/admin/documents/:id', a(async (req, res) => {
+  ownerOnly(req);
+  await tx(async t => {
+    const d = await one("DELETE FROM merchant_documents WHERE id = $1 AND tenant_id = $2 AND status <> 'verified' RETURNING kind, filename, url", [int(req.params.id), T(req)], t);
+    if (!d) throw fail(409, 'Verified documents are kept for the record.');
+    await log(req, 'document.deleted', 'document', int(req.params.id), { kind: DOC_KINDS[d.kind], filename: d.filename }, t);
+    if (d.url) await require('@vercel/blob').del(d.url.slice(8)).catch(() => {});
+  });
+  res.json({ ok: true });
+}));
+// Audit report for this account (owner and managers)
+app.get('/api/admin/audit-report', a(async (req, res) => sendAuditReport(req, res, T(req), req.actor)));
+
 // Reports: per campaign and per outlet for a date range, plus a CSV of every play in it.
 function reportRange(query) {
   const from = dateOr(query.from) || '2000-01-01';
@@ -1781,8 +1953,10 @@ app.get('/api/super/approvals', a(async (req, res) => {
     q(`SELECT ${cols} FROM tenants WHERE status = 'pending' ORDER BY created_at`),
     q(`SELECT ${cols} FROM tenants WHERE signup_source = 'self' AND status <> 'pending' ORDER BY decided_at DESC NULLS LAST LIMIT 30`),
   ]);
-  for (const t of [...pending, ...decided]) t.admin_url = adminUrl(req, t);
-  res.json({ pending, decided });
+  const all = [...pending, ...decided];
+  const docs = all.length ? await q('SELECT id, tenant_id, kind, filename, mime, size, status, note, created_at FROM merchant_documents WHERE tenant_id = ANY($1) ORDER BY id', [all.map(t => t.id)]) : [];
+  for (const t of all) { t.admin_url = adminUrl(req, t); t.documents = docs.filter(d => d.tenant_id === t.id); }
+  res.json({ pending, decided, doc_kinds: DOC_KINDS });
 }));
 app.post('/api/super/tenants/:id/approve', a(async (req, res) => {
   const t = await one('SELECT * FROM tenants WHERE id = $1', [int(req.params.id)]);
@@ -1830,6 +2004,30 @@ app.post('/api/super/complaints/:id/reply', a(async (req, res) => {
   res.json({ ok: true });
 }));
 
+// Business documents: review before approving
+app.get('/api/super/tenants/:id/documents', a(async (req, res) => res.json({ kinds: DOC_KINDS, documents: await docList(int(req.params.id)) })));
+app.get('/api/super/documents/:id/file', a(async (req, res) => {
+  const d = await one('SELECT * FROM merchant_documents WHERE id = $1', [int(req.params.id)]);
+  if (!d) throw fail(404, 'Document not found');
+  await sendDocument(res, d);
+}));
+app.post('/api/super/documents/:id/review', a(async (req, res) => {
+  const status = ['verified', 'rejected', 'submitted'].includes(req.body.status) ? req.body.status : null;
+  if (!status) throw fail(400, 'Unknown status');
+  const note = String(req.body.note || '').trim().slice(0, 300);
+  if (status === 'rejected' && note.length < 3) throw fail(400, 'Please say why the document is not accepted (the merchant will see it)');
+  const d = await one('UPDATE merchant_documents SET status = $2, note = $3, reviewed_at = $4 WHERE id = $1 RETURNING tenant_id, kind, filename',
+    [int(req.params.id), status, note, status === 'submitted' ? null : utcNow()]);
+  if (!d) throw fail(404, 'Document not found');
+  await slog(req, d.tenant_id, `document.${status}`, 'document', int(req.params.id), { kind: DOC_KINDS[d.kind], filename: d.filename, note });
+  res.json({ ok: true });
+}));
+// Audit report for any merchant
+app.get('/api/super/tenants/:id/audit-report', a(async (req, res) => {
+  if (!await one('SELECT 1 FROM tenants WHERE id = $1', [int(req.params.id)])) throw fail(404, 'Merchant not found');
+  await sendAuditReport(req, res, int(req.params.id), SUPER);
+}));
+
 // Platform-wide activity log, and a full check that nobody has altered it.
 app.get('/api/super/activity', a(async (req, res) => {
   const before = int(req.query.before) || 2 ** 62;
@@ -1872,6 +2070,7 @@ app.get('/admin/enter', a(async (req, res) => {
   res.set('Set-Cookie', cookie(req, 'nv_admin', await makeToken({ t: t.id, v: t.session_version, imp: 1, exp: Date.now() + 2 * 3600000 }), 2 * 3600));
   res.redirect('/admin');
 }));
+app.get(['/admin/audit-report', '/super/audit-report'], (req, res) => res.sendFile(path.join(pub, 'report.html')));
 app.get('/admin/print/:id', (req, res) => res.sendFile(path.join(pub, 'admin', 'print.html')));
 app.get(['/super', '/super/'], (req, res) => {
   const k = siteOf(req).kind;

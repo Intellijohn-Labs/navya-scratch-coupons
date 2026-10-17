@@ -320,3 +320,23 @@ CREATE TABLE IF NOT EXISTS draw_chunks (
   url      TEXT,            -- public Blob URL otherwise
   PRIMARY KEY (draw_id, idx)
 );
+
+-- ---------------------------------------------------------------- Phase 4: business documents
+-- Files a merchant sends for verification (GST certificate, trade licence, ID). Stored privately in Vercel Blob
+-- ("private:<path>" in url) or, without Blob, in `data`.
+CREATE TABLE IF NOT EXISTS merchant_documents (
+  id           SERIAL PRIMARY KEY,
+  tenant_id    INTEGER  NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  kind         TEXT     NOT NULL CHECK (kind IN ('gst', 'licence', 'id_proof', 'other')),
+  filename     TEXT     NOT NULL,
+  mime         TEXT     NOT NULL,
+  size         INTEGER  NOT NULL,
+  url          TEXT,
+  data         BYTEA,
+  status       TEXT     NOT NULL DEFAULT 'submitted' CHECK (status IN ('submitted', 'verified', 'rejected')),
+  note         TEXT     NOT NULL DEFAULT '',
+  uploaded_by  TEXT     NOT NULL DEFAULT '',
+  created_at   TIMESTAMP NOT NULL DEFAULT (now() AT TIME ZONE 'utc'),
+  reviewed_at  TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_documents_tenant ON merchant_documents(tenant_id, id);

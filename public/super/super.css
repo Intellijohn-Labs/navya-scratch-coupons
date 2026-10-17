@@ -40,3 +40,9 @@ body.super .btn.primary { background: linear-gradient(135deg, #2A3F6E, #14213D);
 .nbadge { margin-left: auto; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 99px; background: #E5484D; color: #fff; font-style: normal; font-size: 11.5px; font-weight: 800; display: grid; place-items: center; }
 body.super .seg button.on { color: #14213D; }
 @media (max-width: 760px) { .nbadge { position: absolute; top: 2px; right: 2px; min-width: 16px; height: 16px; font-size: 10px; padding: 0 4px; } }
+
+.docs-list { display: grid; gap: 6px; margin-top: 10px; }
+.doc-chip { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 12px; background: #F6F7FB; border: 1px solid var(--line); }
+.doc-chip a { text-decoration: none; color: var(--ink); margin-right: auto; min-width: 0; }
+.doc-chip a span { color: var(--muted); font-size: 12.5px; }
+.doc-chip a:hover b { text-decoration: underline; }

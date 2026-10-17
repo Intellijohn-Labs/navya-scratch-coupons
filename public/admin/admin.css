@@ -520,3 +520,10 @@ body.super .login, .login.platform {
   background: radial-gradient(circle at 30% 30%, #F7CF6B 0 6px, transparent 7px), radial-gradient(circle at 65% 40%, #F7CF6B 0 6px, transparent 7px), radial-gradient(circle at 45% 70%, #F7CF6B 0 6px, transparent 7px), #14213D; }
 @keyframes spinDrum { to { transform: rotate(360deg); } }
 td.mono, .mono { font-family: ui-monospace, Consolas, monospace; letter-spacing: .04em; }
+
+/* ---------- business documents ---------- */
+.doc-item { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 12px; background: var(--grey-soft); margin-bottom: 6px; }
+.doc-item a { text-decoration: none; color: var(--ink); margin-right: auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.doc-item a span { color: var(--muted); font-size: 12.5px; }
+.doc-add { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+.doc-add .input { height: 36px; flex: 1; }

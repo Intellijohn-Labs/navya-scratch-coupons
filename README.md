@@ -36,6 +36,10 @@ On or after the draw date the owner presses **Run the draw** on the campaign:
 
 Winners' coupons become prizes with a reward code (valid for the campaign's "collect within" days) and are redeemed at the counter like any prize. **Forfeit** passes a prize to the next backup. `/draw/:id` is the public live page with a "Verify in my browser" button that re-runs every step; `/winners` lists all draws. Winners get the `gd_draw_winner` WhatsApp template.
 
+### Business documents and audit reports (Phase 4)
+- **Documents:** businesses can attach a GST certificate, trade licence and owner ID (PDF/JPG/PNG/WebP, 3 MB, checked by file signature) when they sign up, or later from **Settings**. Files are stored privately (Vercel Blob, or the `merchant_documents` table without Blob) and can only be opened by that shop's owner/managers and the Super Admin. Super Admin → **Approvals** / **Merchants → Documents** marks each one verified or not accepted (with a reason the shop sees).
+- **Audit report:** `/admin/audit-report` (Reports → Audit report) and `/super/audit-report?tenant=…` (Merchants → Audit report). For a date range and optionally one campaign: business details, summary, campaigns, every Lucky Draw with its proof and winners, prizes handed over, complaints, and the activity log, plus a full re-check of the tamper-evident log. Each report gets a number and a SHA-256 fingerprint that is written to the log. Print or save as PDF from the page. Demo data is left out.
+
 ### Complaints (Phase 2)
 Customers raise tickets (`GD-XXXXXX`) from `/my`. The coupon, outlet, campaign and time are attached automatically; a photo is optional. The merchant answers from **Complaints**. A ticket not resolved within **24 hours** escalates to Super Admin → **Complaints** automatically, and the customer can escalate it at any time.
 

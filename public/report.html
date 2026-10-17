@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Audit report · Genuine Draw</title>
+<link rel="icon" href="/img/platform-icon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Albert+Sans:wght@400;500;600;700;800&family=Fraunces:opsz,wght@9..144,800&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+:root { --ink: #17203A; --muted: #66708A; --line: #E3E6EE; --navy: #14213D; --gold: #C9922E; --green: #1E9E5A; --red: #C93838; --bg: #F3F4F8; }
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { font-family: 'Albert Sans', system-ui, sans-serif; color: var(--ink); background: var(--bg); font-size: 13.5px; line-height: 1.45; }
+.bar { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; gap: 10px; align-items: end; padding: 12px max(16px, calc((100% - 860px) / 2)); background: var(--navy); color: #fff; }
+.bar label { display: grid; gap: 3px; font-size: 12px; color: rgba(255, 255, 255, .7); font-weight: 700; }
+.bar input, .bar select { height: 36px; border-radius: 9px; border: 0; padding: 0 10px; font: inherit; }
+.bar button { height: 36px; border-radius: 9px; border: 0; padding: 0 16px; font: inherit; font-weight: 800; cursor: pointer; }
+.bar .go { background: #fff; color: var(--navy); }
+.bar .print { background: linear-gradient(135deg, #FFE9A8, #F7CF6B 40%, #E0A33A); color: var(--navy); margin-left: auto; }
+.page { width: min(860px, 100% - 24px); margin: 18px auto 40px; background: #fff; border-radius: 14px; padding: 40px 44px; box-shadow: 0 20px 50px -30px rgba(20, 33, 61, .4); }
+.head { display: flex; justify-content: space-between; gap: 20px; border-bottom: 3px solid var(--navy); padding-bottom: 16px; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 800; color: var(--navy); }
+.brand img { width: 34px; height: 34px; }
+h1 { font-family: 'Fraunces', serif; font-size: 28px; margin: 14px 0 4px; color: var(--navy); }
+h2 { font-size: 15px; text-transform: uppercase; letter-spacing: .08em; color: var(--navy); margin: 28px 0 10px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+h3 { font-size: 14px; margin: 14px 0 6px; }
+.meta { text-align: right; font-size: 12px; color: var(--muted); }
+.meta b { color: var(--ink); }
+.mono { font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; word-break: break-all; }
+.kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.kpi { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+.kpi b { display: block; font-size: 22px; color: var(--navy); }
+.kpi span { font-size: 12px; color: var(--muted); }
+table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); padding: 6px 8px; border-bottom: 1px solid var(--line); }
+td { padding: 6px 8px; border-bottom: 1px solid #F0F1F5; vertical-align: top; }
+tr { break-inside: avoid; }
+.ok { color: var(--green); font-weight: 800; } .bad { color: var(--red); font-weight: 800; }
+.seal { display: flex; gap: 14px; align-items: center; padding: 14px 16px; border-radius: 12px; border: 2px solid var(--green); background: #EEF9F3; margin-top: 10px; }
+.seal.broken { border-color: var(--red); background: #FDEEEE; }
+.seal .ico { font-size: 28px; }
+.dl { display: grid; grid-template-columns: 180px 1fr; gap: 4px 14px; }
+.dl dt { color: var(--muted); }
+.dl dd { margin: 0; font-weight: 600; }
+.note { color: var(--muted); font-size: 12px; }
+.draw { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-bottom: 12px; break-inside: avoid; }
+.foot { margin-top: 30px; padding-top: 14px; border-top: 1px solid var(--line); font-size: 11.5px; color: var(--muted); }
+.loading { text-align: center; padding: 80px 20px; color: var(--muted); }
+@media (max-width: 640px) { .page { padding: 22px 16px; } .kpis { grid-template-columns: repeat(2, 1fr); } .head { flex-direction: column; } .meta { text-align: left; } .dl { grid-template-columns: 1fr; } table { font-size: 11.5px; } }
+@media print {
+  @page { size: A4; margin: 14mm; }
+  body { background: #fff; font-size: 11.5px; }
+  .bar { display: none; }
+  .page { width: auto; margin: 0; padding: 0; box-shadow: none; border-radius: 0; }
+  h2 { break-after: avoid; }
+}
+</style>
+</head>
+<body>
+  <div class="bar" id="bar">
+    <label>From<input type="date" id="from"></label>
+    <label>To<input type="date" id="to"></label>
+    <label id="campWrap" hidden>Campaign<select id="camp"><option value="">All campaigns</option></select></label>
+    <button class="go" id="go" type="button">Update report</button>
+    <button class="print" type="button" onclick="print()">Save as PDF / Print</button>
+  </div>
+  <main class="page" id="page"><div class="loading">Preparing the report…</div></main>
+<script>
+(() => {
+  const $ = s => document.querySelector(s);
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const d8 = s => s ? new Date(s.length === 10 ? s + 'T00:00:00' : s.replace(' ', 'T') + 'Z') : null;
+  const fD = s => s ? d8(s).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
+  const fT = s => s ? d8(s).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—';
+  const n = v => Number(v || 0).toLocaleString('en-IN');
+  const code = c => c && c.length === 8 ? c.slice(0, 4) + '-' + c.slice(4) : (c || '');
+  const phone = p => p ? p.slice(0, 2) + '••••••' + p.slice(-2) : '';
+  const params = new URLSearchParams(location.search);
+  const isSuper = location.pathname.startsWith('/super');
+  const tenant = params.get('tenant');
+  const CAT = { not_received: 'Did not get coupon / reward', prize_not_given: 'Prize not given', result_dispute: 'Problem with the result', invalid_coupon: 'Coupon invalid or used', other: 'Something else' };
+  const ACT = a => a.replace(/[._]/g, ' ');
+  $('#from').value = params.get('from') || new Date(Date.now() - 29 * 864e5).toISOString().slice(0, 10);
+  $('#to').value = params.get('to') || new Date().toISOString().slice(0, 10);
+
+  async function campaigns() {
+    if (isSuper) return;
+    const r = await fetch('/api/admin/campaigns').then(x => x.ok ? x.json() : []).catch(() => []);
+    if (!r.length) return;
+    $('#campWrap').hidden = false;
+    $('#camp').innerHTML += r.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
+    $('#camp').value = params.get('campaign_id') || '';
+  }
+  async function load() {
+    const q = new URLSearchParams({ from: $('#from').value, to: $('#to').value });
+    if ($('#camp').value) q.set('campaign_id', $('#camp').value);
+    history.replaceState(null, '', `${location.pathname}?${isSuper ? `tenant=${tenant}&` : ''}${q}`);
+    $('#page').innerHTML = '<div class="loading">Preparing the report…</div>';
+    const url = isSuper ? `/api/super/tenants/${encodeURIComponent(tenant)}/audit-report?${q}` : `/api/admin/audit-report?${q}`;
+    const r = await fetch(url).catch(() => null);
+    if (!r || !r.ok) {
+      const e = r ? await r.json().catch(() => ({})) : {};
+      $('#page').innerHTML = `<div class="loading">${esc(e.error || 'Could not load the report.')} ${r && r.status === 401 ? `<br><a href="${isSuper ? '/super' : '/admin'}">Sign in</a>` : ''}</div>`;
+      return;
+    }
+    render(await r.json());
+  }
+  function render(R) {
+    const x = R.report, t = x.tenant, s = x.summary, k = x.complaints, c = x.log_check;
+    document.title = `${R.report_no} · ${t.name} · Audit report`;
+    $('#page').innerHTML = `
+      <div class="head">
+        <div><div class="brand"><img src="/img/platform-icon.svg" alt="">Genuine Draw</div>
+          <h1>Audit report</h1>
+          <div><b>${esc(t.name)}</b>${x.campaign ? ` · campaign <b>${esc(x.campaign.name)}</b>` : ' · all campaigns'}</div>
+          <div class="note">Period ${fD(x.period.from)} to ${fD(x.period.to)}</div></div>
+        <div class="meta">Report no. <b>${esc(R.report_no)}</b><br>Generated ${fT(R.generated_at)}<br>by ${esc(R.generated_by)}</div>
+      </div>
+
+      <div class="seal ${c.ok ? '' : 'broken'}"><span class="ico">${c.ok ? '🔒' : '⚠️'}</span><div>
+        ${c.ok ? `<b class="ok">Activity log intact.</b> All ${n(c.checked)} entries in the tamper-evident log were re-checked when this report was made; none has been changed or removed.`
+          : `<b class="bad">Activity log check failed</b> at entry #${c.broken_at}. Please contact Genuine Draw.`}
+        <div class="note">Report fingerprint (SHA-256), recorded in the activity log:</div><div class="mono">${esc(R.fingerprint)}</div></div></div>
+
+      <h2>Business</h2>
+      <dl class="dl">
+        <dt>Name</dt><dd>${esc(t.name)} (${esc(t.slug)})</dd>
+        <dt>Owner</dt><dd>${esc(t.owner_name || '—')}${t.contact_phone ? ' · ' + esc(t.contact_phone) : ''}${t.email ? ' · ' + esc(t.email) : ''}</dd>
+        <dt>Type · GST</dt><dd>${esc(t.business_type || '—')} · ${esc(t.gst_number || '—')}</dd>
+        <dt>Address</dt><dd>${esc(t.address || '—')}</dd>
+        <dt>Account</dt><dd>${esc(t.status)} · on Genuine Draw since ${fD(t.created_at)}${t.plan_expires_on ? ' · plan till ' + fD(t.plan_expires_on) : ''}</dd>
+        <dt>Outlets</dt><dd>${x.outlets.map(o => esc(o.name) + (o.active ? '' : ' (closed)')).join(', ') || '—'}</dd>
+        <dt>Staff logins</dt><dd>${x.staff.map(u => `${esc(u.name)} (${esc(u.role)}${u.active ? '' : ', off'})`).join(', ') || 'None'}</dd>
+      </dl>
+
+      <h2>Summary for the period</h2>
+      <div class="kpis">
+        <div class="kpi"><b>${n(s.printed)}</b><span>coupons printed</span></div>
+        <div class="kpi"><b>${n(s.played)}</b><span>coupons played</span></div>
+        <div class="kpi"><b>${n(s.prizes_won)}</b><span>prizes won</span></div>
+        <div class="kpi"><b>${n(s.handed_over)}</b><span>prizes handed over</span></div>
+        <div class="kpi"><b>${n(s.draw_entries)}</b><span>lucky draw entries</span></div>
+        <div class="kpi"><b>${n(s.customers)}</b><span>customers</span></div>
+        <div class="kpi"><b>${n(s.voided)}</b><span>coupons cancelled</span></div>
+        <div class="kpi"><b>${n(k.total)}</b><span>complaints</span></div>
+      </div>
+
+      <h2>Campaigns</h2>
+      ${x.campaigns.length ? `<table><thead><tr><th>Campaign</th><th>Type</th><th>Dates</th><th>Printed</th><th>Played</th><th>Prizes won</th><th>Handed over</th></tr></thead><tbody>
+        ${x.campaigns.map(cp => `<tr><td><b>${esc(cp.name)}</b></td><td>${cp.type === 'draw' ? 'Lucky Draw' : 'Instant Win'}</td><td>${fD(cp.starts_on)} – ${fD(cp.ends_on)}${cp.draw_on ? `<br><span class="note">draw ${fD(cp.draw_on)}</span>` : ''}</td>
+          <td>${n(cp.printed)}</td><td>${n(cp.played)}</td><td>${n(cp.prizes_won)}</td><td>${n(cp.handed_over)}</td></tr>`).join('')}</tbody></table>` : '<p class="note">No campaigns.</p>'}
+
+      <h2>Lucky draws</h2>
+      ${x.draws.length ? x.draws.map(d => `<div class="draw">
+        <h3>${esc(d.campaign)} <span class="note">· ${d.status === 'drawn' ? 'drawn ' + fT(d.drawn_at) : 'sealed, drawing'}</span></h3>
+        <dl class="dl"><dt>Entries sealed</dt><dd>${n(d.entries_count)} at ${fT(d.sealed_at)}</dd>
+          <dt>List fingerprint</dt><dd class="mono">${esc(d.entries_hash)}</dd>
+          <dt>Public random number</dt><dd><span class="mono">drand round #${esc(d.beacon_round)}: ${esc(d.beacon_randomness || 'pending')}</span></dd>
+          <dt>Seed</dt><dd class="mono">${esc(d.seed || '—')}</dd>
+          <dt>Public proof</dt><dd><a href="https://genuinedraw.com/draw/${d.id}">genuinedraw.com/draw/${d.id}</a></dd></dl>
+        ${d.winners.length ? `<table style="margin-top:8px"><thead><tr><th>#</th><th>Prize</th><th>Entry</th><th>Winner</th><th>Status</th></tr></thead><tbody>
+          ${d.winners.map(w => `<tr><td>${w.pick_no}</td><td>${esc(w.prize_name || 'Backup')}</td><td class="mono">${esc(code(w.coupon_code))}</td><td>${esc(w.customer_name || '')} <span class="note">${esc(phone(w.phone))}</span></td>
+            <td>${w.status === 'forfeited' ? '<span class="bad">Forfeited</span>' : w.status === 'standby' ? 'Backup' : w.coupon_status === 'redeemed' ? `<span class="ok">Collected</span> ${fD(w.redeemed_at)}` : 'To collect'}</td></tr>`).join('')}</tbody></table>` : ''}
+      </div>`).join('') : '<p class="note">No lucky draws in this period.</p>'}
+
+      <h2>Prizes handed over (${n(x.handovers.length)})</h2>
+      ${x.handovers.length ? `<table><thead><tr><th>When</th><th>Prize</th><th>Coupon · reward code</th><th>Customer</th><th>Outlet · by</th></tr></thead><tbody>
+        ${x.handovers.map(h => `<tr><td>${fT(h.redeemed_at)}</td><td>${esc(h.gift_name)}<br><span class="note">${esc(h.campaign || '')}</span></td><td class="mono">${esc(code(h.code))}<br>${esc(h.reward_code || '')}</td>
+          <td>${esc(h.customer_name || '')}<br><span class="note">${esc(phone(h.phone))}</span></td><td>${esc(h.outlet || '—')}<br><span class="note">${esc(h.redeemed_by || '')}</span></td></tr>`).join('')}</tbody></table>`
+        : '<p class="note">No prizes were handed over in this period.</p>'}
+
+      <h2>Complaints</h2>
+      <p>${n(k.total)} raised · ${n(k.resolved)} resolved · ${n(k.open)} still open · ${n(k.escalated)} escalated to Genuine Draw${k.avg_resolution_hours != null ? ` · average time to resolve <b>${k.avg_resolution_hours} hours</b>` : ''}</p>
+      ${k.list.length ? `<table><thead><tr><th>Ticket</th><th>Problem</th><th>Raised</th><th>Status</th></tr></thead><tbody>
+        ${k.list.map(c => `<tr><td class="mono">${esc(c.ticket_no)}</td><td>${esc(CAT[c.category] || c.category)}${c.coupon_code ? `<br><span class="note">coupon ${esc(code(c.coupon_code))}</span>` : ''}</td><td>${fT(c.created_at)}</td>
+          <td>${esc(c.status.replace('_', ' '))}${c.escalated ? ' · escalated' : ''}${c.resolved_at ? `<br><span class="note">closed ${fT(c.resolved_at)}</span>` : ''}</td></tr>`).join('')}</tbody></table>` : ''}
+
+      <h2>Activity log (${x.activity.shown < x.activity.total ? `latest ${n(x.activity.shown)} of ${n(x.activity.total)}` : n(x.activity.total)} entries)</h2>
+      <table><thead><tr><th>#</th><th>When</th><th>Who</th><th>What</th><th>Fingerprint</th></tr></thead><tbody>
+        ${x.activity.entries.map(e => `<tr><td>${e.id}</td><td>${fT(e.created_at)}</td><td>${esc(e.actor_name || e.actor_type)}<br><span class="note">${esc(e.actor_type)}</span></td>
+          <td>${esc(ACT(e.action))}${e.entity_id ? ` <span class="note">${esc(e.entity)} ${esc(e.entity_id)}</span>` : ''}</td><td class="mono">${esc(e.hash.slice(0, 16))}…</td></tr>`).join('')}</tbody></table>
+
+      <div class="foot">This report was produced by Genuine Draw from the shop's records. Every action in it is part of a tamper-evident activity log, where each
+        entry carries the fingerprint of the one before. Report ${esc(R.report_no)} and its fingerprint were recorded in that log when it was generated. Demo/test data is excluded.</div>`;
+  }
+  $('#go').onclick = load;
+  campaigns().then(load);
+})();
+</script>
+</body>
+</html>

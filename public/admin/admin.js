@@ -1045,7 +1045,7 @@
     const st = { from: firstOfMonth, to: today, campaign: campaignId || '' };
     view.innerHTML = `
       <div class="page-head"><div><h1>Reports</h1><p>How each campaign and outlet is doing over any period.</p></div>
-        <button class="btn" id="rCsv">⬇️ Download CSV</button></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="rAudit">🛡️ Audit report</button><button class="btn" id="rCsv">⬇️ Download CSV</button></div></div>
       <div class="card filters">
         <div><label class="label">From</label><input class="input" type="date" id="rFrom" value="${st.from}"></div>
         <div><label class="label">To</label><input class="input" type="date" id="rTo" value="${st.to}"></div>
@@ -1098,6 +1098,7 @@
       $('#rFrom').value = st.from; $('#rTo').value = st.to; reload();
     });
     $('#rCsv').onclick = () => { location.href = '/api/admin/reports.csv?' + qs(); };
+    $('#rAudit').onclick = () => window.open('/admin/audit-report?' + qs(), '_blank');
     await load();
   }
 
@@ -1240,6 +1241,13 @@
               ${s.plan_expires_on ? `Active till <b>${fmtDate(s.plan_expires_on)}</b>` : 'No expiry date'}</p>
           </div>
           <div class="card">
+            <h3>Business documents</h3>
+            <p class="hint" style="margin-top:0">GST certificate, trade licence or ID proof for Genuine Draw to verify. PDF, JPG or PNG, up to 3 MB.</p>
+            <div id="docList"><div class="hint">Loading…</div></div>
+            ${ME.role === 'owner' ? `<div class="doc-add"><select class="input" id="docKind"><option value="gst">GST certificate</option><option value="licence">Shop / trade licence</option><option value="id_proof">Owner ID proof</option><option value="other">Other document</option></select>
+              <label class="btn sm">📎 Choose file<input type="file" id="docFile" accept="application/pdf,image/jpeg,image/png,image/webp" hidden></label></div>` : ''}
+          </div>
+          <div class="card">
             <h3>Change password</h3>
             ${ME.impersonated ? '<p class="hint" style="margin:0">You are viewing as the Super Admin. Reset this merchant&#39;s password from the Super Admin page.</p>' : `
             <input class="input" type="password" id="sPwOld" placeholder="Current password" autocomplete="current-password">
@@ -1255,6 +1263,27 @@
       </div>
       <div class="modal-foot" style="position:sticky;bottom:12px"><button class="btn primary" id="sSave" style="min-width:200px;height:48px">Save settings</button></div>`;
 
+    const DOC_ST = { submitted: ['new', 'Waiting for check'], verified: ['redeemed', 'Verified ✓'], rejected: ['void', 'Not accepted'] };
+    const loadDocs = async () => {
+      const r = await api('/documents');
+      $('#docList').innerHTML = r.documents.length ? r.documents.map(d => `<div class="doc-item"><a href="/api/admin/documents/${d.id}/file" target="_blank" rel="noopener">📄 <b>${esc(r.kinds[d.kind])}</b> <span>${esc(d.filename)}</span></a>
+        <span class="pill ${DOC_ST[d.status][0]}">${DOC_ST[d.status][1]}</span>${d.status !== 'verified' && ME.role === 'owner' ? `<button class="btn sm danger" data-deldoc="${d.id}" aria-label="Remove">✕</button>` : ''}
+        ${d.note ? `<div class="hint" style="flex-basis:100%;margin:2px 0 0">${esc(d.note)}</div>` : ''}</div>`).join('') : '<p class="hint" style="margin:0 0 8px">No documents yet.</p>';
+      $('#docList').querySelectorAll('[data-deldoc]').forEach(b => b.onclick = async () => {
+        if (!await askConfirm({ title: 'Remove this document?', ok: 'Remove' })) return;
+        try { await api('/documents/' + b.dataset.deldoc, { method: 'DELETE' }); toast('Document removed'); loadDocs(); } catch (e) { toast(e.message); }
+      });
+    };
+    loadDocs();
+    if ($('#docFile')) $('#docFile').onchange = async e => {
+      const file = e.target.files[0]; e.target.value = '';
+      if (!file) return;
+      if (file.size > 3 * 1024 * 1024) return toast('Please choose a file under 3 MB');
+      const data = await new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = no; r.readAsDataURL(file); });
+      toast('Uploading…');
+      try { await api('/documents', { method: 'POST', body: { kind: $('#docKind').value, filename: file.name, data } }); toast('Document sent for verification ✓'); loadDocs(); }
+      catch (err) { toast(err.message); }
+    };
     const drawLogo = () => { $('#logoBox').innerHTML = logo ? `<img src="${esc(logo)}" alt="">` : 'No logo<br>(name is shown)'; };
     drawLogo();
     $('#logoFile').onchange = async e => {

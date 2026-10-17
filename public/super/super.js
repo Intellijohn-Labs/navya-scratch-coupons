@@ -109,6 +109,41 @@
   const refreshBadges = () => api('/overview').then(r => setBadges(r.counts)).catch(() => {});
 
   // ---------------------------------------------------------------- approvals
+  // ---------------------------------------------------------------- business documents
+  const DOC_KIND = { gst: 'GST certificate', licence: 'Shop / trade licence', id_proof: 'Owner ID proof', other: 'Other' };
+  const DOC_STATUS = { submitted: ['expired', 'To check'], verified: ['active', 'Verified'], rejected: ['suspended', 'Not accepted'] };
+  const kb = b => b < 1048576 ? Math.round(b / 1024) + ' KB' : (b / 1048576).toFixed(1) + ' MB';
+  function docChips(docs) {
+    if (!docs.length) return '<div class="sub" style="margin-top:6px">No documents sent</div>';
+    return `<div class="docs-list">${docs.map(d => `<div class="doc-chip">
+      <a href="/api/super/documents/${d.id}/file" target="_blank" rel="noopener" title="Open">📄 <b>${esc(DOC_KIND[d.kind] || d.kind)}</b> <span>${esc(d.filename)} · ${kb(d.size)}</span></a>
+      <span class="pill ${DOC_STATUS[d.status][0]}">${DOC_STATUS[d.status][1]}</span>
+      ${d.status !== 'verified' ? `<button class="btn sm" data-docok="${d.id}" title="Mark as verified">✓ Verify</button>` : ''}
+      ${d.status !== 'rejected' ? `<button class="btn sm danger" data-docno="${d.id}" title="Not accepted">✕</button>` : ''}
+      ${d.note ? `<div class="sub" style="flex-basis:100%">${esc(d.note)}</div>` : ''}</div>`).join('')}</div>`;
+  }
+  function wireDocs(el, after) {
+    el.querySelectorAll('[data-docok]').forEach(b => b.onclick = async () => {
+      try { await api(`/documents/${b.dataset.docok}/review`, { method: 'POST', body: { status: 'verified' } }); toast('Document verified'); after(); } catch (e) { toast(e.message); }
+    });
+    el.querySelectorAll('[data-docno]').forEach(b => b.onclick = async () => {
+      const note = await askConfirm({ title: 'Not accept this document?', text: 'The merchant will see your reason in their Settings.', ok: 'Not accepted', input: true, placeholder: 'e.g. The scan is unreadable. Please upload a clearer copy.' });
+      if (note === null) return;
+      try { await api(`/documents/${b.dataset.docno}/review`, { method: 'POST', body: { status: 'rejected', note } }); toast('Marked as not accepted'); after(); } catch (e) { toast(e.message); }
+    });
+  }
+  async function documentsModal(t) {
+    const m = modal('<div id="dBody">Loading…</div>', { wide: true });
+    const draw = async () => {
+      const r = await api(`/tenants/${t.id}/documents`);
+      $('#dBody', m.el).innerHTML = `<h2>Documents · ${esc(t.name)}</h2>${docChips(r.documents)}
+        <div class="modal-foot"><button class="btn primary" id="dClose">Close</button></div>`;
+      $('#dClose', m.el).onclick = m.close;
+      wireDocs(m.el, draw);
+    };
+    draw();
+  }
+
   async function approvals() {
     const { pending, decided } = await api('/approvals');
     refreshBadges();
@@ -120,6 +155,7 @@
         <div class="sub">${esc(t.owner_name)} · ${esc(t.contact_phone)}${t.email ? ' · ' + esc(t.email) : ''}</div>
         <div class="sub">${esc([t.business_type, t.address, t.gst_number ? 'GST ' + t.gst_number : ''].filter(Boolean).join(' · ') || '—')}</div>
         ${t.reject_reason ? `<div class="sub" style="color:var(--red)">Reason: ${esc(t.reject_reason)}</div>` : ''}
+        ${docChips(t.documents || [])}
       </div>
       <div></div>
       <div class="bk-actions">${actions}</div>
@@ -132,6 +168,7 @@
         || '<div class="card empty-state"><span>✅</span>No sign-ups waiting</div>'}</div>
       ${decided.length ? `<h3 class="section-title">Recently decided</h3><div class="bk-list">${decided.map(t => row(t, t.status === 'rejected' ? `<button class="btn sm" data-ok="${t.id}">Approve after all</button>` : '')).join('')}</div>` : ''}`;
     const all = [...pending, ...decided], find = id => all.find(t => t.id === +id);
+    wireDocs(view, approvals);
     view.querySelectorAll('[data-ok]').forEach(b => b.onclick = () => {
       const t = find(b.dataset.ok);
       const nextYear = new Date(Date.now() + 365 * 86400000).toISOString().slice(0, 10);
@@ -254,6 +291,8 @@
             <button class="btn sm primary" data-open="${t.id}" title="Open this merchant's admin as them">Open as merchant</button>
             <button class="btn sm" data-edit="${t.id}">Edit</button>
             <button class="btn sm" data-pw="${t.id}">Reset password</button>
+            <button class="btn sm" data-docs="${t.id}">Documents</button>
+            <a class="btn sm" href="/super/audit-report?tenant=${t.id}" target="_blank" rel="noopener">Audit report</a>
           </div>
         </div>`;
       }).join('') || `<div class="card empty-state"><span>🏪</span>${tenants.length ? 'No merchant matches your search' : 'No merchants yet — add your first one!'}</div>`;
@@ -263,6 +302,7 @@
       });
       view.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => editBakery(+b.dataset.edit));
       view.querySelectorAll('[data-pw]').forEach(b => b.onclick = () => resetPassword(tenants.find(t => t.id === +b.dataset.pw)));
+      view.querySelectorAll('[data-docs]').forEach(b => b.onclick = () => documentsModal(tenants.find(t => t.id === +b.dataset.docs)));
     };
     $('#q').oninput = draw;
     $('#addBk').onclick = addBakery;

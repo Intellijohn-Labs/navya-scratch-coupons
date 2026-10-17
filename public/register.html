@@ -12,6 +12,12 @@
 <link href="https://fonts.googleapis.com/css2?family=Albert+Sans:wght@400;500;600;700;800;900&family=Fraunces:opsz,wght@9..144,800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/admin/admin.css">
 <link rel="stylesheet" href="/portal.css">
+<style>
+  .docs { display: grid; gap: 8px; margin-top: 8px; }
+  .doc-row { display: grid; grid-template-columns: 170px 1fr; gap: 10px; align-items: center; padding: 10px 12px; border: 1.5px dashed #D6DCEA; border-radius: 12px; background: #FAFBFE; font-weight: 700; font-size: 14px; }
+  .doc-row input { font-size: 13px; min-width: 0; }
+  @media (max-width: 560px) { .doc-row { grid-template-columns: 1fr; } }
+</style>
 </head>
 <body class="portal">
   <header class="p-top">
@@ -52,6 +58,13 @@
       <label class="label">Password <i>(at least 8 characters)</i></label>
       <input class="input" name="password" type="password" minlength="8" autocomplete="new-password" required>
 
+      <h2 style="margin-top:24px">Business documents <span class="hint" style="font-weight:500">(optional, helps us approve you faster)</span></h2>
+      <p class="hint">PDF, JPG or PNG, up to 3 MB each. Only the Genuine Draw team sees these.</p>
+      <div class="docs">
+        <label class="doc-row"><span>GST certificate</span><input type="file" data-kind="gst" accept="application/pdf,image/jpeg,image/png,image/webp"></label>
+        <label class="doc-row"><span>Shop / trade licence</span><input type="file" data-kind="licence" accept="application/pdf,image/jpeg,image/png,image/webp"></label>
+        <label class="doc-row"><span>Owner ID proof</span><input type="file" data-kind="id_proof" accept="application/pdf,image/jpeg,image/png,image/webp"></label>
+      </div>
       <label class="check-row"><input type="checkbox" name="agree"><span>I confirm these details are correct and agree to run campaigns honestly. Genuine Draw may verify my business before approval.</span></label>
       <p class="p-err" id="err"></p>
       <button class="btn primary block" id="go">Submit for approval</button>
@@ -62,6 +75,7 @@
       <div class="big">🎉</div>
       <h2>Thanks! We've got your details.</h2>
       <p class="muted">The Genuine Draw team will check them and message you on WhatsApp once your account is approved, usually within one working day.</p>
+      <div class="p-note gold" id="docsNote" hidden></div>
       <div class="p-note">Your shop's address will be <b id="doneUrl"></b><br>Sign in there with the username <b id="doneUser"></b> and the password you chose.</div>
     </div>
   </main>
@@ -87,7 +101,11 @@
   f.addEventListener('submit', async e => {
     e.preventDefault();
     err.textContent = '';
+    const files = [...f.querySelectorAll('input[type=file]')].filter(i => i.files[0]).map(i => ({ kind: i.dataset.kind, file: i.files[0] }));
+    const big = files.find(x => x.file.size > 3 * 1024 * 1024);
+    if (big) { err.textContent = `${big.file.name} is over 3 MB. Please choose a smaller file.`; return; }
     const body = Object.fromEntries(new FormData(f));
+    for (const k of Object.keys(body)) if (body[k] instanceof File) delete body[k];
     body.agree = f.agree.checked;
     body.phone = body.phone.replace(/\D/g, '').slice(-10);
     const btn = document.getElementById('go'); btn.disabled = true; btn.textContent = 'Submitting…';
@@ -98,6 +116,17 @@
       document.getElementById('doneUrl').textContent = d.admin_url.replace(/^https?:\/\//, '').replace(/\/admin$/, '');
       document.getElementById('doneUser').textContent = d.username;
       f.hidden = true; document.getElementById('done').hidden = false; window.scrollTo({ top: 0, behavior: 'smooth' });
+      if (files.length) {
+        const note = document.getElementById('docsNote'); note.hidden = false;
+        let sent = 0; const failed = [];
+        for (const x of files) {
+          note.textContent = `Sending your documents… ${sent + 1} of ${files.length}`;
+          const data = await new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = no; r.readAsDataURL(x.file); });
+          const up = await fetch('/api/register/documents', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: d.upload_token, kind: x.kind, filename: x.file.name, data }) }).catch(() => null);
+          if (up && up.ok) sent++; else failed.push(x.file.name + (up ? ': ' + ((await up.json().catch(() => ({}))).error || 'not accepted') : ''));
+        }
+        note.textContent = failed.length ? `${sent} document${sent === 1 ? '' : 's'} sent. Not sent: ${failed.join('; ')}. You can add documents later from Settings.` : `✓ ${sent} document${sent === 1 ? '' : 's'} sent for verification.`;
+      }
     } catch (ex) { err.textContent = ex.message; btn.disabled = false; btn.textContent = 'Submit for approval'; }
   });
 })();
