@@ -550,7 +550,7 @@ async function replyToComplaint(req, c, who, body, status) {
       details: { from: c.status, to: next, by: who.type }, ip: req.ip }, t);
   });
   const st = status && status !== c.status ? ` Status: ${STATUS_LABEL[status]}.` : '';
-  await sendTemplate(c.phone, 'gd_complaint_update', [c.ticket_no, c.shop || PLATFORM, body || 'The status of your ticket has changed', STATUS_LABEL[status || (c.status === 'open' ? 'in_progress' : c.status)]]);
+  await sendTemplate(c.phone, 'gd_complaint_update_v2', [c.ticket_no, c.shop || PLATFORM, body || 'The status of your ticket has changed', STATUS_LABEL[status || (c.status === 'open' ? 'in_progress' : c.status)]]);
 }
 
 app.get('/api/my/complaints', a(async (req, res) => {
@@ -1969,7 +1969,7 @@ app.post('/api/super/tenants/:id/approve', a(async (req, res) => {
       [t.id, utcNow(), plan, max], c);
     await slog(req, t.id, 'merchant.approved', 'merchant', t.id, { name: t.name, username: t.slug, plan_expires_on: plan, max_coupons: max }, c);
   });
-  await sendTemplate(t.contact_phone, 'gd_registration_status', [(t.owner_name || t.contact_name || t.name).split(' ')[0], t.name]);
+  await sendTemplate(t.contact_phone, 'gd_status', [(t.owner_name || t.contact_name || t.name).split(' ')[0], t.name]);
   res.json({ ok: true, admin_url: adminUrl(req, t) });
 }));
 app.post('/api/super/tenants/:id/reject', a(async (req, res) => {
@@ -1999,7 +1999,7 @@ app.post('/api/super/complaints/:id/reply', a(async (req, res) => {
   await replyToComplaint(req, c, { type: 'super', name: `${PLATFORM} team`, actor: SUPER }, req.body.body, req.body.status);
   if (req.body.body) {
     const t = await one('SELECT * FROM tenants WHERE id = $1', [c.tenant_id]);
-    if (t) await sendTemplate(t.whatsapp || t.contact_phone, 'gd_complaint_update', [c.ticket_no, `${PLATFORM} team`, req.body.body, STATUS_LABEL[req.body.status || c.status] || 'In progress']);
+    if (t) await sendTemplate(t.whatsapp || t.contact_phone, 'gd_complaint_update_v2', [c.ticket_no, `${PLATFORM} team`, req.body.body, STATUS_LABEL[req.body.status || c.status] || 'In progress']);
   }
   res.json({ ok: true });
 }));
